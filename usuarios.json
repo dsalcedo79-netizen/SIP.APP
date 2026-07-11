@@ -1,0 +1,41 @@
+{
+  "roles": {
+    "presidente": {
+      "etiqueta": "Presidente",
+      "directores": "*"
+    },
+    "vicepresidente": {
+      "etiqueta": "Vicepresidencia",
+      "directores": "*"
+    },
+    "cliente": {
+      "etiqueta": "Cliente externo",
+      "directores": [
+        "cco-ia-comercial"
+      ]
+    }
+  },
+  "usuarios": [
+    {
+      "usuario": "presidente",
+      "nombre": "David Salcedo (Presidente)",
+      "rol": "presidente",
+      "salt": "b4c527ea1ed69e031866915e2c5b3e76",
+      "hash": "9af8491ad0ca3d09fef55d452030764162a266c9748f5df1f3242a1f0cbb30fb"
+    },
+    {
+      "usuario": "vicepresidenta",
+      "nombre": "Vicepresidencia",
+      "rol": "vicepresidente",
+      "salt": "55ba5690d0f9c6728ad1a6cd6c4ce52e",
+      "hash": "ea8b6934303ef7d7bb7caf215161eee277e36aebe22ed50b0f1da666422eac97"
+    },
+    {
+      "usuario": "cliente1",
+      "nombre": "Cliente de ejemplo",
+      "rol": "cliente",
+      "salt": "4323a1cd0363d6d1ce1fd957d736625b",
+      "hash": "7bcd7aed266d42bd76d81ee8d675e2e6af2cec3fbabff97b8cfa8d60df69a901"
+    }
+  ]
+}

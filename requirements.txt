@@ -1,0 +1,2 @@
+# SIGEI solo usa la libreria estandar de Python: no hay dependencias que instalar.
+# Este archivo existe para que Render detecte el proyecto como Python.
