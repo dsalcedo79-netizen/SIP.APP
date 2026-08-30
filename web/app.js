@@ -26,6 +26,24 @@ const OBJETIVOS = {
   "Financiero":"Tener múltiples fuentes de ingreso",
   "Calidad de Vida":"Tener grandes experiencias de vida"
 };
+// ---- Catalogo unico de las 10 areas de vida ----
+// `id` es la clave de almacenamiento y no cambia nunca. `rueda` es el nombre que usa
+// la Rueda de la Vida; `workbook` el del cuaderno impreso "Plan Anual de Vida".
+// Antes cada taller guardaba con el nombre que mostraba, y los datos no se podian cruzar.
+const AREAS = [
+  {id:"espiritual",   rueda:"Espiritual",      workbook:"Espiritual"},
+  {id:"emocional",    rueda:"Emocional",       workbook:"Emocional"},
+  {id:"mental",       rueda:"Mental",          workbook:"Mental"},
+  {id:"salud",        rueda:"Cuerpo",          workbook:"Salud"},
+  {id:"personalidad", rueda:"Personalidad",    workbook:"Personalidad"},
+  {id:"familiar",     rueda:"Familiar",        workbook:"Familiar"},
+  {id:"social",       rueda:"Social",          workbook:"Social"},
+  {id:"ocupacional",  rueda:"Profesional",     workbook:"Ocupacional"},
+  {id:"economico",    rueda:"Financiero",      workbook:"Economico"},
+  {id:"calidad_vida", rueda:"Calidad de Vida", workbook:"Calidad de Vida"}
+];
+const AREA_POR_RUEDA = Object.fromEntries(AREAS.map(a=>[a.rueda,a]));
+
 const MED_MAPA = ["Espiritualidad · Conexión con Dios","Salud Mental, Emocional y Física","Carácter","Relaciones · Familia","Finanzas · Abundancia","Vocación · Vida Profesional","Visión · Propósito de Vida"];
 const MOODS = [["enojado","😠"],["cansado","😴"],["triste","😢"],["feliz","😊"],["emocionado","🤩"]];
 const FRASES = [
@@ -78,6 +96,12 @@ const ETAPAS = [
   [76,90,"🏁 Aterrizaje","Cierra tus metas: resultados, nueva rueda, lecciones, celebración y nuevo destino."]
 ];
 function etapaDe(d){ return ETAPAS.find(([a,b])=>d>=a&&d<=b) || ETAPAS[ETAPAS.length-1]; }
+// Taller 27 del cuaderno: los habitos se deciden, no solo se listan.
+const HABITO_TIPOS = [
+  ["comenzar","Debo comenzar","🌱"],
+  ["fortalecer","Debo fortalecer","💪"],
+  ["eliminar","Debo eliminar","🚫"]
+];
 const RUT_M = ["Despertar y agradecer","Meditación del día","Leer mi Declaración de Vida","Revisar mis 3 prioridades"];
 const RUT_N = ["Evaluar mi día","Gratitud y aprendizajes","Preparar el día de mañana"];
 const PREGUNTAS_AREA = [
@@ -106,7 +130,8 @@ let state = JSON.parse(localStorage.getItem("sip_v3") || "null") || {
   diagnosticos:[], temperamento:{resp:{},resultado:""},
   foda:{f:"",o:"",d:"",a:""}, ikigai:{amas:"",bueno:"",mundo:"",valor:"",sintesis:""},
   planAnual:{vivir:"",crecer:"",contribuir:"",areas:{}},
-  declaracion:"", afirmaciones:[], aformaciones:[], vision:[], analisisArea:{},
+  declaracion:"", afirmaciones:[], aformaciones:[], vision:[],
+  porqueArea:{}, analisisArea:{}, motivaArea:{},   // Talleres 3, 4 y 5 del cuaderno
   metas:[],
   ciclo:null, ciclos:[],           // ciclo = {inicio,prioridades:[],metas90:[],firma,firmadoEl}
   habitos:[], registros:{}, sesiones:[],
@@ -115,7 +140,24 @@ let state = JSON.parse(localStorage.getItem("sip_v3") || "null") || {
   coach:{token:"",nombre:"",msgs:[]}
 };
 state.viaje = state.viaje || {inicio: state.perfil && state.perfil.nombre ? hoyF() : ""};
+state.porqueArea   = state.porqueArea   || {};
 state.analisisArea = state.analisisArea || {};
+state.motivaArea   = state.motivaArea   || {};
+// El "Analisis por Area" guardaba con los nombres del cuaderno ("Salud", "CalidadVida").
+// Se migran una sola vez a los ids estables de AREAS, sin perder lo ya escrito.
+(function migrarClavesDeArea(){
+  const viejo = {Espiritual:"espiritual", Emocional:"emocional", Mental:"mental",
+    Salud:"salud", Personalidad:"personalidad", Familiar:"familiar", Social:"social",
+    Ocupacional:"ocupacional", Economico:"economico", CalidadVida:"calidad_vida"};
+  ["porqueArea","analisisArea","motivaArea"].forEach(function(k){
+    const o = state[k]; if(!o) return;
+    Object.keys(viejo).forEach(function(v){
+      if(o[v] === undefined) return;
+      if(o[viejo[v]] === undefined && String(o[v]).trim()) o[viejo[v]] = o[v];
+      delete o[v];
+    });
+  });
+})();
 let vista = "inicio";
 function hoyF(){ return new Date().toLocaleDateString("sv-SE"); }
 function save(){ localStorage.setItem("sip_v3", JSON.stringify(state)); }
@@ -207,14 +249,14 @@ function ir(v){
 }
 function compuertaHTML(){
   const falta=[];
-  if(!ultimoDiag()) falta.push("Taller 1 · Rueda de la Vida");
-  if(!state.temperamento.resultado) falta.push("Taller 2 · Test de Temperamento");
-  if(!fodaOk()) falta.push("Taller 3 · FODA Personal");
-  if(!ikigaiOk()) falta.push("Taller 4 · Ikigai");
+  if(!ultimoDiag()) falta.push("Herramienta 1 · Taller 2 · Mi Rueda de Vida Hoy");
+  if(!state.temperamento.resultado) falta.push("Herramienta 2 · Taller 6 · Test de Temperamento");
+  if(!fodaOk()) falta.push("Herramienta 3 · Taller 7 · Mi FODA Personal");
+  if(!ikigaiOk()) falta.push("Herramienta 4 · Talleres 8 a 11 · Método Ikigai");
   const p=state.planAnual;
-  if(!(p.vivir.trim()&&p.crecer.trim()&&p.contribuir.trim())) falta.push("Taller 5 · Vive • Crece • Contribuye");
-  if(state.metas.length<3) falta.push("Taller 6 · Objetivos por área (mínimo 3)");
-  if(!state.declaracion.trim()) falta.push("Taller 8 · Declaración de Vida");
+  if(!(p.vivir.trim()&&p.crecer.trim()&&p.contribuir.trim())) falta.push("Herramienta 5 · Taller 18 · Las tres preguntas más importantes");
+  if(state.metas.length<3) falta.push("Herramienta 7 · Taller 20 · Objetivos por área (mínimo 3)");
+  if(!state.declaracion.trim()) falta.push("Herramienta 9 · Taller 22 · Declaración de vida");
   return `<div class="compuerta"><b>🔒 El viaje se recorre en orden.</b>
     <p class="sub" style="margin-top:6px;">Para llegar aquí primero debes conocer tu realidad y diseñar tu futuro. Te falta:</p>
     <ul>${falta.map(x=>`<li>${x}</li>`).join("")}</ul>
@@ -255,6 +297,18 @@ function vInicio(){
 function empezar(){ const n=document.getElementById("nom").value.trim(); if(!n) return; state.perfil.nombre=n; state.viaje.inicio=hoy(); save(); vista="estado"; render(); }
 
 // ---------- FASE 1 · ESTADO ACTUAL ----------
+// Los talleres 3, 4 y 5 del cuaderno comparten estructura: una respuesta por cada
+// una de las 10 areas. Un solo componente los sirve a los tres.
+function bloqueArea(ref, titulo, pregunta, store, placeholder){
+  const datos = state[store] || {};
+  const llenas = AREAS.filter(a => (datos[a.id]||"").trim()).length;
+  return `<details class="area"><summary><span>${ref} · ${titulo}<br><span class="objetivo">${pregunta}</span></span><span class="tag ${llenas===10?"":"dorado"}">${llenas}/10</span></summary>
+    <div class="cuerpo">
+      ${AREAS.map(a=>`<label class="campo">${a.workbook}${a.workbook!==a.rueda?` <span style="color:var(--gris);font-weight:400;font-size:.9em;">· ${a.rueda} en la rueda</span>`:""}</label><textarea onblur="campoArea('${store}','${a.id}',this.value)" style="min-height:60px;" placeholder="${placeholder}">${esc(datos[a.id])}</textarea>`).join("")}
+    </div></details>`;
+}
+function campoArea(store,id,v){ (state[store]=state[store]||{})[id]=v; save(); pintarViaje(); }
+
 let diagTmp=null;
 function vEstado(){
   const d=ultimoDiag();
@@ -273,27 +327,27 @@ function vEstado(){
 
   ${typeof vRuedaHTML==="function" ? vRuedaHTML() : ""}
 
-  <details class="area" ${!d?"open":""}><summary><span>Taller 1 · La Rueda de la Vida<br><span class="objetivo">Califícate de 1 a 10 en cada área</span></span><span class="tag ${d?"":"dorado"}">${d?"✓ Completado":"Pendiente"}</span></summary>
+  <details class="area" ${!d?"open":""}><summary><span>Herramienta 1 · Taller 2 · Mi Rueda de Vida Hoy<br><span class="objetivo">Califícate de 1 a 10 en cada área · versión con deslizadores</span></span><span class="tag ${d?"":"dorado"}">${d?"✓ Completado":"Pendiente"}</span></summary>
     <div class="cuerpo">${filas}
       <br><div class="centro" id="radarBox">${radar(diagTmp)}</div>
       <div class="centro"><button class="btn" onclick="guardarDiag()">Guardar mi rueda</button></div>
       ${state.diagnosticos.length?`<br>${state.diagnosticos.slice().reverse().map(x=>`<div class="lista-item"><span>${x.fecha}</span><span class="tag dorado">Promedio ${promedio(x)}</span></div>`).join("")}`:""}
     </div></details>
 
-  <details class="area"><summary><span>Análisis por Área<br><span class="objetivo">¿Cómo podría mejorar mi calificación en un año?</span></span></summary>
-    <div class="cuerpo">
-      ${["Espiritual","Emocional","Mental","Salud","Personalidad","Familiar","Social","Ocupacional","Economico","CalidadVida"].map(k=>
-        `<label class="campo">${k==="CalidadVida"?"Calidad de Vida":k==="Economico"?"Económico":k}</label><textarea onblur="campo('analisisArea','${k}',this.value)" style="min-height:60px;" placeholder="¿Cómo mejorar en esta área?">${esc(state.analisisArea[k])}</textarea>`).join("")}
-    </div></details>
+  ${bloqueArea("Herramienta 1 · Taller 3","¿Por qué me califiqué así?","Observa el equilibrio entre áreas y reflexiona el porqué de cada calificación","porqueArea","¿Por qué te calificaste así en esta área?")}
 
-  <details class="area"><summary><span>Taller 2 · Test de Temperamento<br><span class="objetivo">¿Cómo eres? Los 4 temperamentos clásicos</span></span><span class="tag ${t.resultado?"":"dorado"}">${t.resultado?"✓ "+t.resultado:"Pendiente"}</span></summary>
+  ${bloqueArea("Herramienta 1 · Taller 4","¿Cómo podría mejorar mi calificación en un año?","Define qué harás para subir al menos un nivel","analisisArea","¿Cómo mejorar en esta área?")}
+
+  ${bloqueArea("Herramienta 1 · Taller 5","¿Qué me puede motivar a mejorar?","Identifica motivadores y beneficios de crecer en cada área","motivaArea","¿Qué te motivaría a crecer aquí?")}
+
+  <details class="area"><summary><span>Herramienta 2 · Taller 6 · Identifico qué temperamento tengo<br><span class="objetivo">¿Cómo eres? Los 4 temperamentos clásicos</span></span><span class="tag ${t.resultado?"":"dorado"}">${t.resultado?"✓ "+t.resultado:"Pendiente"}</span></summary>
     <div class="cuerpo">
     ${TEMP_QS.map((item,i)=>`<label class="campo">${i+1}. ${item.q}</label>
       ${item.o.map((op,j)=>`<button class="opcion ${t.resp[i]===j?"sel":""}" onclick="tempResp(${i},${j})">${op}</button>`).join("")}`).join("")}
     ${Object.keys(t.resp).length>=TEMP_QS.length?`<div class="insight"><b>Tu temperamento predominante: ${t.resultado}.</b><br>${TEMP_DESC[t.resultado]}</div>`:`<p class="aviso">Responde las ${TEMP_QS.length} preguntas para ver tu resultado.</p>`}
     </div></details>
 
-  <details class="area"><summary><span>Taller 3 · FODA Personal<br><span class="objetivo">Comprende tu realidad</span></span><span class="tag ${fodaOk()?"":"dorado"}">${fodaOk()?"✓ Completado":"Pendiente"}</span></summary>
+  <details class="area"><summary><span>Herramienta 3 · Taller 7 · Mi FODA Personal<br><span class="objetivo">Comprende tu realidad</span></span><span class="tag ${fodaOk()?"":"dorado"}">${fodaOk()?"✓ Completado":"Pendiente"}</span></summary>
     <div class="cuerpo">
       <label class="campo">💪 Fortalezas — ¿Qué amas hacer? ¿Qué te diferencia?</label><textarea onblur="campo('foda','f',this.value)">${esc(state.foda.f)}</textarea>
       <label class="campo">🌅 Oportunidades — ¿Qué tendencias o puertas puedes aprovechar?</label><textarea onblur="campo('foda','o',this.value)">${esc(state.foda.o)}</textarea>
@@ -301,7 +355,7 @@ function vEstado(){
       <label class="campo">⚠️ Amenazas — ¿Qué riesgos externos enfrentas?</label><textarea onblur="campo('foda','a',this.value)">${esc(state.foda.a)}</textarea>
     </div></details>
 
-  <details class="area"><summary><span>Taller 4 · Ikigai<br><span class="objetivo">¿Cuál podría ser tu propósito?</span></span><span class="tag ${ikigaiOk()?"":"dorado"}">${ikigaiOk()?"✓ Completado":"Pendiente"}</span></summary>
+  <details class="area"><summary><span>Herramienta 4 · Talleres 8 a 11 · Método Ikigai<br><span class="objetivo">¿Cuál podría ser tu propósito?</span></span><span class="tag ${ikigaiOk()?"":"dorado"}">${ikigaiOk()?"✓ Completado":"Pendiente"}</span></summary>
     <div class="cuerpo">
       <label class="campo">❤️ ¿Qué amas hacer?</label><textarea onblur="campo('ikigai','amas',this.value)">${esc(state.ikigai.amas)}</textarea>
       <label class="campo">⭐ ¿En qué eres bueno?</label><textarea onblur="campo('ikigai','bueno',this.value)">${esc(state.ikigai.bueno)}</textarea>
@@ -328,6 +382,7 @@ function campo(obj,k,v){ state[obj][k]=v; save(); pintarViaje(); }
 function vPlan(){
   const pa=state.planAnual, porDim={};
   state.metas.forEach(m=>{ (porDim[m.area]=porDim[m.area]||[]).push(m); });
+  const areasCubiertas = DIMS.filter(x=>(porDim[x]||[]).length>=2).length;
   let areasHtml="";
   GRUPOS.forEach(([g,areas])=>{
     areasHtml+=`<div class="grupo-titulo">${g}</div>`;
@@ -341,25 +396,35 @@ function vPlan(){
   return `<div class="card"><div class="lema">Fase 2 · ¿Hacia dónde quieres ir?</div>
     <h2>Tu Plan de Vida</h2><p class="sub">Aquí comienza la construcción de tu futuro.</p></div>
 
-  <details class="area" open><summary><span>Taller 5 · Vive • Crece • Contribuye ❤️<br><span class="objetivo">Las tres preguntas más importantes — aquí nace el propósito</span></span><span class="tag ${pa.vivir&&pa.crecer&&pa.contribuir?"":"dorado"}">${pa.vivir&&pa.crecer&&pa.contribuir?"✓":"Pendiente"}</span></summary>
+  <details class="area" open><summary><span>Herramienta 5 · Taller 18 · Las tres preguntas más importantes ❤️<br><span class="objetivo">Vive • Crece • Contribuye — aquí nace el propósito</span></span><span class="tag ${pa.vivir&&pa.crecer&&pa.contribuir?"":"dorado"}">${pa.vivir&&pa.crecer&&pa.contribuir?"✓":"Pendiente"}</span></summary>
     <div class="cuerpo">
       <label class="campo">🌎 ¿Cómo quieres VIVIR? (experiencias, estilo de vida)</label><textarea onblur="tres('vivir',this.value)">${esc(pa.vivir)}</textarea>
       <label class="campo">🌱 ¿Cómo quieres CRECER? (la persona en la que te convertirás)</label><textarea onblur="tres('crecer',this.value)">${esc(pa.crecer)}</textarea>
       <label class="campo">🤝 ¿Cómo quieres CONTRIBUIR? (tu impacto en el mundo)</label><textarea onblur="tres('contribuir',this.value)">${esc(pa.contribuir)}</textarea>
     </div></details>
 
-  <details class="area"><summary><span>Taller 6 · Objetivos por Área de Vida<br><span class="objetivo">Claros, medibles, con fecha (mínimo 3)</span></span><span class="tag ${state.metas.length>=3?"":"dorado"}">${state.metas.length} metas</span></summary>
+  <details class="area"><summary><span>Herramienta 6 · Taller 19 · ¿Cuál es la visión de mi vida en un año?<br><span class="objetivo">Une las tres respuestas anteriores en una sola imagen, escrita en presente</span></span><span class="tag ${state.perfil.vision&&state.perfil.vision.trim()?"":"dorado"}">${state.perfil.vision&&state.perfil.vision.trim()?"✓":"Pendiente"}</span></summary>
+    <div class="cuerpo">
+      <p class="sub">Imagina que ya es dentro de un año y todo ocurrió. Describe cómo te sientes, cómo actúas, cómo te relacionas y cómo vives en cada área. Cuanto más clara y detallada sea tu visión, más fácil será reconocer las oportunidades cuando aparezcan.</p>
+      <label class="campo">Mi visión de vida a un año</label>
+      <textarea style="min-height:150px" onblur="visionAnual(this.value)" placeholder="Dentro de un año...">${esc(state.perfil.vision)}</textarea>
+    </div></details>
+
+  <details class="area"><summary><span>Herramienta 7 · Taller 20 · Objetivos por área de vida<br><span class="objetivo">Claros, medibles y con fecha — el cuaderno pide 2 por área</span></span><span class="tag ${areasCubiertas===10?"":"dorado"}">${areasCubiertas}/10 áreas · ${state.metas.length} metas</span></summary>
     <div class="cuerpo">
       <div class="fila"><select id="mDim">${DIMS.map(x=>`<option>${x}</option>`).join("")}</select><input type="date" id="mPlazo"></div><br>
       <input type="text" id="mTxt" placeholder="¿Qué quieres lograr?"><br><br>
       <button class="btn" onclick="addMeta()">Agregar objetivo</button><br><br>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(112px,1fr));">
+        ${DIMS.map(x=>{const n=(porDim[x]||[]).length; return `<div class="kpi" style="padding:8px;"><div class="num" style="font-size:1.05rem;color:${n>=2?"var(--verde)":"var(--gris)"}">${n}/2</div><div class="lbl" style="font-size:.66rem;">${x}</div></div>`;}).join("")}
+      </div><br>
       ${DIMS.filter(x=>porDim[x]).map(x=>`<h3>${x}</h3>${porDim[x].map(m=>
         `<div class="lista-item"><button class="estado ${m.estado}" onclick="cicloMeta('${m.id}')">${{pendiente:"Pendiente",en_progreso:"En progreso",lograda:"✓ Lograda"}[m.estado]}</button>
         <span style="flex:1;">${esc(m.descripcion)}</span>${m.plazo?`<span class="tag">${m.plazo}</span>`:""}
         <button class="btn-mini" onclick="delMeta('${m.id}')">✕</button></div>`).join("")}`).join("")}
     </div></details>
 
-  <details class="area"><summary><span>Taller 7 · Afirmaciones y Aformaciones<br><span class="objetivo">Programa tu mente</span></span><span class="tag">${state.afirmaciones.length+state.aformaciones.length}</span></summary>
+  <details class="area"><summary><span>Herramienta 8 · Taller 21 · Afirmaciones y aformaciones<br><span class="objetivo">Programa tu mente</span></span><span class="tag">${state.afirmaciones.length+state.aformaciones.length}</span></summary>
     <div class="cuerpo">
       <label class="campo">Afirmación (ej. "YO SOY disciplinado y constante")</label>
       <div class="fila"><input type="text" id="afiTxt" placeholder="YO SOY / YO PUEDO / YO MEREZCO / YO ELIJO..."><button class="btn-sec" onclick="addLista('afirmaciones','afiTxt')">+</button></div>
@@ -369,21 +434,26 @@ function vPlan(){
       ${state.aformaciones.map((x,i)=>`<div class="lista-item"><span style="flex:1;">❓ ${esc(x)}</span><button class="btn-mini" onclick="delLista('aformaciones',${i})">✕</button></div>`).join("")}
     </div></details>
 
-  <details class="area"><summary><span>Taller 8 · Declaración de Vida<br><span class="objetivo">¿Quién decides ser? ¿Qué legado construirás?</span></span><span class="tag ${state.declaracion.trim()?"":"dorado"}">${state.declaracion.trim()?"✓":"Pendiente"}</span></summary>
+  <details class="area"><summary><span>Herramienta 9 · Taller 22 · Declaración de vida<br><span class="objetivo">¿Quién decides ser? ¿Qué legado construirás?</span></span><span class="tag ${state.declaracion.trim()?"":"dorado"}">${state.declaracion.trim()?"✓":"Pendiente"}</span></summary>
     <div class="cuerpo">
       <label class="campo">Mi Declaración de Vida (la leerás cada mañana)</label>
       <textarea style="min-height:110px" onblur="decl(this.value)">${esc(state.declaracion)}</textarea>
     </div></details>
 
-  <details class="area"><summary><span>Taller 9 · Vision Board<br><span class="objetivo">Haz visible tu visión</span></span><span class="tag">${state.vision.length}</span></summary>
+  <details class="area"><summary><span>Herramienta 10 · Tablero de visualización<br><span class="objetivo">Haz visible tu visión</span></span><span class="tag">${state.vision.length}</span></summary>
     <div class="cuerpo">
       <div class="fila"><input type="text" id="vbEmoji" placeholder="Emoji (🏝)" style="max-width:80px;"><input type="text" id="vbTxt" placeholder="Sueño o imagen de tu futuro"><button class="btn-sec" onclick="addVision()">+</button></div><br>
       <div class="grid">${state.vision.map((v,i)=>`<div class="kpi"><div class="num">${esc(v.e)||"⭐"}</div><div class="lbl">${esc(v.t)}</div><button class="btn-mini" onclick="delLista('vision',${i})">✕</button></div>`).join("")}</div>
     </div></details>
 
+  <div class="card"><h2>Herramienta 11 · Plan de acción por área de vida</h2>
+    <p class="sub">Aquí usas todo lo anterior. Cada área tiene las mismas ocho preguntas: tu rueda responde la primera, tu FODA las de límites, y las tres preguntas más importantes el resto.</p>
+    ${areasHtml}</div>
+
   ${fase2Done()?`<div class="card centro"><p class="sub">✨ <b>Este es el futuro que quiero construir.</b> Fase 2 completada.</p><button class="btn" onclick="ir('noventa')">Continuar → Mi Plan de 90 Días</button></div>`:""}`;
 }
 function tres(k,v){ state.planAnual[k]=v; save(); pintarViaje(); }
+function visionAnual(v){ state.perfil.vision=v; save(); pintarViaje(); }
 function pa(a,k,v){ const r=state.planAnual.areas[a]=state.planAnual.areas[a]||{}; r[k]=v; save(); }
 function decl(v){ state.declaracion=v; save(); pintarViaje(); }
 function addMeta(){ const t=document.getElementById("mTxt").value.trim(); if(!t) return;
@@ -405,26 +475,36 @@ function vNoventa(){
     <p class="sub">Tu vuelo inició el <b>${state.viaje.inicio}</b> y aterriza el <b>${fin}</b>. Hoy es tu día ${dv} (${et[2]}).</p>
     <div class="med-grid" style="grid-template-columns:repeat(6,1fr);">${ETAPAS.map(([a,b,t])=>`<div class="med-dia ${dv>=a&&dv<=b?"actual":""} ${dv>b?"hecha":""}"><div class="n" style="font-size:.75rem;">${t.split(" ")[0]}</div>${t.split(" ").slice(1).join(" ")}<br>${a}–${b}</div>`).join("")}</div></div>
 
-  <div class="card"><h2>Taller 10 · Mis 3 prioridades del período</h2>
+  <div class="card"><h2>Herramienta 12 · Taller 23 · Mis 3 prioridades para los próximos 90 días</h2>
+    <p class="sub">No necesitas hacer más cosas. Necesitas identificar las correctas y comprometerte con ellas.</p>
     ${[0,1,2].map(i=>`<label class="campo">Prioridad ${i+1}</label><input type="text" value="${esc(c.prioridades[i])}" onblur="prio90(${i},this.value)" ${c.firma?"disabled":""}>`).join("")}</div>
 
-  <div class="card"><h2>Talleres 11-13 · Metas de 90 días con indicador</h2>
-    <p class="sub">Metas medibles por área. Actualiza tu % de avance desde Mi Día o aquí.</p>
+  <div class="card"><h2>Herramienta 12 · Taller 24 · Resultados esperados</h2>
+    <p class="sub">Una prioridad debe convertirse en un resultado medible. Define el indicador: de dónde partes, dónde estás y a dónde vas. Ejemplo: peso actual 80 kg → peso meta 76 kg.</p>
     ${!c.firma?`<div class="fila"><select id="m90Dim">${DIMS.map(x=>`<option>${x}</option>`).join("")}</select></div><br>
     <input type="text" id="m90Txt" placeholder="Meta medible (ej. Correr 5K / Leer 3 libros / Ahorrar $X)"><br><br>
     <button class="btn" onclick="addMeta90()">Agregar meta</button><br><br>`:""}
     ${c.metas90.map((m,i)=>`<div class="lista-item" style="flex-wrap:wrap;">
-      <span class="tag">${m.area}</span><span style="flex:1;">${esc(m.desc)}</span>
-      <b style="color:var(--verde)">${m.avance||0}%</b>
+      <span class="tag">${m.area}</span><span style="flex:1;min-width:150px;">${esc(m.desc)}</span>
+      <b style="color:var(--verde)">${pct90(m)}%</b>
       ${!c.firma?`<button class="btn-mini" onclick="delMeta90(${i})">✕</button>`:""}
-      <input type="range" class="avance" min="0" max="100" step="5" value="${m.avance||0}" oninput="ava90(${i},this.value)">
+      <div class="fila" style="width:100%;gap:6px;align-items:flex-end;">
+        <div><label class="campo" style="margin-top:4px;">Punto de partida</label><input type="text" value="${esc(m.indInicial)}" placeholder="80" onblur="ind90(${i},'indInicial',this.value)"></div>
+        <div><label class="campo" style="margin-top:4px;">Hoy</label><input type="text" value="${esc(m.indActual)}" placeholder="79" onblur="ind90(${i},'indActual',this.value)"></div>
+        <div><label class="campo" style="margin-top:4px;">Meta</label><input type="text" value="${esc(m.indMeta)}" placeholder="76" onblur="ind90(${i},'indMeta',this.value)"></div>
+        <div><label class="campo" style="margin-top:4px;">Unidad</label><input type="text" value="${esc(m.indUnidad)}" placeholder="kg" onblur="ind90(${i},'indUnidad',this.value)"></div>
+      </div>
+      ${tieneIndicador(m)
+        ? `<p class="aviso" style="width:100%;">Indicador: ${esc(m.indInicial)} → <b>${esc(m.indActual||m.indInicial)}</b> → ${esc(m.indMeta)} ${esc(m.indUnidad)} · el avance se calcula solo.</p>`
+        : `<input type="range" class="avance" min="0" max="100" step="5" value="${m.avance||0}" oninput="ava90(${i},this.value)"><p class="aviso" style="width:100%;">Sin indicador numérico: mueve la barra a mano.</p>`}
     </div>`).join("") || `<p class="aviso">Agrega al menos una meta.</p>`}</div>
 
-  <div class="card"><h2>Taller 14 · Compromiso Personal de 90 Días</h2>
+  <div class="card"><h2>Herramienta 12 · Taller 28 · Compromiso personal de 90 días</h2>
     ${c.firma
-      ? `<div class="insight">✍️ <b>Firmado por ${esc(c.firma)}</b> el ${c.firmadoEl}.<br><br><i>"Yo, ${esc(c.firma)}, me comprometo conmigo mismo a ejecutar este plan durante 90 días, un día a la vez, para VIVIR, CRECER y CONTRIBUIR."</i></div>
+      ? `<div class="insight">✍️ <b>Firmado por ${esc(c.firma)}</b> el ${c.firmadoEl}.<br><br><i>"Hoy decido asumir la responsabilidad de mi crecimiento personal. Me comprometo a mantener el enfoque en mis prioridades, ejecutar las acciones necesarias y desarrollar los hábitos que me acercarán a la vida que deseo construir. Acepto que los resultados dependerán de mi disciplina, constancia y compromiso diario. Durante los próximos 90 días elegiré avanzar antes que rendirme, aprender antes que justificarme y actuar antes que postergar."</i></div>
         <div class="centro"><button class="btn" onclick="ir('dia')">Ir a Mi Día → Día ${diaCiclo()} de 90</button></div>`
-      : `<p class="sub"><i>"Yo, ______, me comprometo conmigo mismo a ejecutar este plan durante 90 días, un día a la vez, para VIVIR, CRECER y CONTRIBUIR."</i></p>
+      : `<p class="sub"><b>Toda transformación comienza con una decisión.</b> Lee el siguiente compromiso y firma al finalizar.</p>
+        <div class="insight"><i>"Hoy decido asumir la responsabilidad de mi crecimiento personal. Me comprometo a mantener el enfoque en mis prioridades, ejecutar las acciones necesarias y desarrollar los hábitos que me acercarán a la vida que deseo construir. Acepto que los resultados dependerán de mi disciplina, constancia y compromiso diario. Durante los próximos 90 días elegiré avanzar antes que rendirme, aprender antes que justificarme y actuar antes que postergar."</i></div>
         <label class="campo">Firmo con mi nombre completo</label>
         <input type="text" id="firmaTxt" placeholder="${esc(state.perfil.nombre)}">
         <br><br><div class="centro"><button class="btn" onclick="firmar()" ${c.metas90.length?"":"disabled"}>Firmar mi compromiso 🖋</button></div>
@@ -433,7 +513,21 @@ function vNoventa(){
 }
 function prio90(i,v){ state.ciclo.prioridades[i]=v; save(); }
 function addMeta90(){ const t=document.getElementById("m90Txt").value.trim(); if(!t) return;
-  state.ciclo.metas90.push({area:document.getElementById("m90Dim").value, desc:t, avance:0}); save(); render(); }
+  state.ciclo.metas90.push({area:document.getElementById("m90Dim").value, desc:t, avance:0,
+    indInicial:"", indActual:"", indMeta:"", indUnidad:""}); save(); render(); }
+// Un indicador sirve solo si partida y meta son numeros distintos entre si.
+function tieneIndicador(m){
+  const a=parseFloat(m.indInicial), b=parseFloat(m.indMeta);
+  return !isNaN(a) && !isNaN(b) && a!==b;
+}
+// Con indicador el avance se deduce; sin el, vale lo que el usuario haya puesto a mano.
+function pct90(m){
+  if(!tieneIndicador(m)) return m.avance||0;
+  const ini=parseFloat(m.indInicial), meta=parseFloat(m.indMeta);
+  const act=isNaN(parseFloat(m.indActual))?ini:parseFloat(m.indActual);
+  return Math.max(0, Math.min(100, Math.round((act-ini)/(meta-ini)*100)));
+}
+function ind90(i,campo,v){ const m=state.ciclo.metas90[i]; m[campo]=v; m.avance=pct90(m); save(); render(); }
 function delMeta90(i){ state.ciclo.metas90.splice(i,1); save(); render(); }
 function ava90(i,v){ state.ciclo.metas90[i].avance=+v; save(); }
 function firmar(){ const f=document.getElementById("firmaTxt").value.trim(); if(!f) return;
@@ -475,12 +569,17 @@ function vDia(){
     <div class="med-grid">${[...Array(21)].map((_,i)=>{const dia=i+1, hechas=state.sesiones.map(s=>s.dia);
       return `<div class="med-dia ${hechas.includes(dia)?"hecha":""} ${dia===actualMed&&!hechas.includes(dia)?"actual":""}"><div class="n">${dia}</div>${["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"][i%7]}</div>`;}).join("")}</div></details></div>
 
-  <div class="card"><h2>✅ Mis hábitos</h2>
-    ${state.habitos.map(h=>`<div class="lista-item">
-      <button class="check ${reg.includes(h.id)?"si":""}" onclick="toggleHabito('${h.id}')">${reg.includes(h.id)?"✓":""}</button>
-      <span style="flex:1;">${esc(h.nombre)}</span><span class="tag">${h.area}</span>
-      <button class="btn-mini" onclick="delHabito('${h.id}')">✕</button></div>`).join("") || '<p class="sub">Crea tu primer hábito:</p>'}
-    <br><div class="fila"><input type="text" id="hNom" placeholder="Ej. Leer 20 minutos"><select id="hDim">${DIMS.map(x=>`<option>${x}</option>`).join("")}</select><button class="btn-sec" onclick="addHabito()">+</button></div>
+  <div class="card"><h2>✅ Mis hábitos clave · Taller 27</h2>
+    <p class="sub">Las metas producen resultados; los hábitos producen metas cumplidas.</p>
+    ${HABITO_TIPOS.map(([tipo,etiqueta,emoji])=>{
+      const lista = state.habitos.filter(h=>(h.tipo||"comenzar")===tipo);
+      if(!lista.length) return "";
+      return `<div class="grupo-titulo">${emoji} ${etiqueta}</div>` + lista.map(h=>`<div class="lista-item">
+        <button class="check ${reg.includes(h.id)?"si":""}" onclick="toggleHabito('${h.id}')">${reg.includes(h.id)?"✓":""}</button>
+        <span style="flex:1;">${esc(h.nombre)}</span><span class="tag">${h.area}</span>
+        <button class="btn-mini" onclick="delHabito('${h.id}')">✕</button></div>`).join("");
+    }).join("") || '<p class="sub">Crea tu primer hábito:</p>'}
+    <br><div class="fila"><input type="text" id="hNom" placeholder="Ej. Leer 20 minutos"><select id="hTipo">${HABITO_TIPOS.map(([t,e])=>`<option value="${t}">${e}</option>`).join("")}</select><select id="hDim">${DIMS.map(x=>`<option>${x}</option>`).join("")}</select><button class="btn-sec" onclick="addHabito()">+</button></div>
     <p class="aviso">Racha: ${racha()} días 🔥</p></div>
 
   <div class="card"><h2>🙏 Gratitud y aprendizajes</h2>
@@ -500,7 +599,8 @@ function rut(k,r){ const l=D()[k]; const i=l.indexOf(r); i>=0?l.splice(i,1):l.pu
 function medHoy(){ state.sesiones.push({dia:diaMed(), fecha:hoy(), completada:true}); save(); render(); }
 function reiniciarMed(){ if(confirm("¿Iniciar un nuevo ciclo de 21 días?")){ state.sesiones=[]; save(); render(); } }
 function addHabito(){ const n=document.getElementById("hNom").value.trim(); if(!n) return;
-  state.habitos.push({id:uid(), nombre:n, area:document.getElementById("hDim").value}); save(); render(); }
+  state.habitos.push({id:uid(), nombre:n, area:document.getElementById("hDim").value,
+    tipo:(document.getElementById("hTipo")||{value:"comenzar"}).value}); save(); render(); }
 function delHabito(id){ state.habitos=state.habitos.filter(x=>x.id!==id); save(); render(); }
 function toggleHabito(id){ const f=hoy(); const r=state.registros[f]=state.registros[f]||[];
   const i=r.indexOf(id); i>=0?r.splice(i,1):r.push(id); save(); render(); }
@@ -543,19 +643,19 @@ function vEvolucion(){
       </div>
       <br><div class="centro"><button class="btn-sec" onclick="evalCorte(${x})">🧑‍✈️ Evaluar este corte con mi Coach IA</button></div></div>`;
   });
-  html+=`<div class="card"><h2>Taller 23 · Revisión Semanal (${sem})</h2>
+  html+=`<div class="card"><h2>Herramienta 12 · Taller 29 · Mi progreso — revisión semanal (${sem})</h2>
     <label class="campo">¿Qué logré esta semana?</label><textarea onblur="rev('logre',this.value)">${esc(rv.logre)}</textarea>
     <label class="campo">¿Qué obstáculos encontré?</label><textarea onblur="rev('obstaculos',this.value)">${esc(rv.obstaculos)}</textarea>
     <label class="campo">¿Qué debo ajustar?</label><textarea onblur="rev('ajustes',this.value)">${esc(rv.ajustes)}</textarea></div>`;
   if(dc>=90){
     nuevaTmp = nuevaTmp || Object.fromEntries(DIMS.map(x=>[x,(ultimoDiag()||{valores:{}}).valores[x]||5]));
-    html+=`<div class="card"><h2>Taller 25 · Nueva Rueda de la Vida 🏆</h2>
+    html+=`<div class="card"><h2>Cierre de ciclo · Nueva Rueda de la Vida 🏆</h2>
       <p class="sub">Completaste tus 90 días. Vuelve a calificarte y compara con tu punto de partida (línea dorada).</p>
       ${DIMS.map(x=>`<div class="dim-fila"><label>${x}</label>
         <input type="range" min="1" max="10" value="${nuevaTmp[x]}" oninput="nuevaCambia('${x}',this.value)">
         <span class="val" id="n-${x.replace(/\s/g,'_')}">${nuevaTmp[x]}</span></div>`).join("")}
       <br><div class="centro" id="radarNuevo">${radar(nuevaTmp,300,(primerDiag()||{valores:{}}).valores)}</div>
-      <label class="campo">Taller 26 · Mis lecciones aprendidas</label><textarea id="lecciones"></textarea>
+      <label class="campo">Cierre de ciclo · Mis lecciones aprendidas</label><textarea id="lecciones"></textarea>
       <br><div class="centro"><button class="btn" onclick="cerrarCiclo()">🎉 Celebrar y comenzar nuevo ciclo</button></div></div>`;
   }
   return html;
