@@ -243,9 +243,17 @@ function aplicarPlan(j){
   save();
 }
 
+// "Hay datos locales" significa que la persona hizo trabajo real en este
+// dispositivo, no que tenga nombre: el nombre se rellena solo desde la cuenta
+// al entrar, y contarlo hacia aparecer una pantalla de conflicto falsa cada
+// vez que alguien entraba desde un segundo dispositivo.
 function hayDatosLocales(){
-  return !!(state.perfil && state.perfil.nombre) ||
-         (state.diagnosticos && state.diagnosticos.length > 0);
+  return (state.diagnosticos && state.diagnosticos.length > 0)
+      || (state.metas && state.metas.length > 0)
+      || (state.dias && Object.keys(state.dias).length > 0)
+      || (state.habitos && state.habitos.length > 0)
+      || !!(state.declaracion && state.declaracion.trim())
+      || !!state.ciclo;
 }
 
 // Al entrar se decide que copia vale. Si ambas tienen contenido no se pisa
