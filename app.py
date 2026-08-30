@@ -16,7 +16,10 @@ import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import urllib.parse
+
 import db
+import social
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(BASE_DIR, "web")
@@ -40,7 +43,8 @@ PBKDF2_ITERS = 200000
 # Cada PBKDF2 cuesta ~100 ms de CPU, asi que sin tope un atacante puede tanto
 # adivinar claves como tumbar el servidor. Ventana deslizante en memoria.
 INTENTOS = {}
-LIMITES = {"login": (8, 900), "registro": (5, 3600)}  # (intentos, segundos)
+LIMITES = {"login": (8, 900), "registro": (5, 3600),
+           "publicar": (20, 3600)}  # (intentos, segundos)
 
 
 def limite_excedido(clave, accion):
@@ -319,6 +323,12 @@ class Handler(BaseHTTPRequestHandler):
     def _session(self):
         return get_session(self.headers.get("X-Session", ""))
 
+    def _query(self):
+        partes = self.path.split("?", 1)
+        if len(partes) < 2:
+            return {}
+        return {k: v[0] for k, v in urllib.parse.parse_qs(partes[1]).items()}
+
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/healthz":
@@ -327,6 +337,37 @@ class Handler(BaseHTTPRequestHandler):
                              "db_diagnostico": db.diagnostico(),
                              "db_otras_variables": db.variables_parecidas()})
             return
+        if path.startswith("/api/social/"):
+            s = self._session()
+            if not s:
+                self._send(401, {"error": "No autorizado"})
+                return
+            correo = s.get("usuario", "")
+            q = self._query()
+            if path == "/api/social/muro":
+                self._send(200, {"ok": True,
+                                 "publicaciones": social.muro(correo, q.get("grupo"))})
+            elif path == "/api/social/personas":
+                self._send(200, {"ok": True, "personas": social.personas(correo)})
+            elif path == "/api/social/grupos":
+                self._send(200, {"ok": True, "grupos": social.grupos(correo)})
+            elif path == "/api/social/yo":
+                self._send(200, {"ok": True, "perfil": social.mi_perfil(correo)})
+            elif path == "/api/social/perfil":
+                self._send(200, {"ok": True,
+                                 "perfil": social.perfil_de(correo, q.get("id", 0))})
+            else:
+                self._send(404, {"error": "Ruta desconocida"})
+            return
+
+        if path == "/api/admin/reportes":
+            s = self._session()
+            if not can_admin(s):
+                self._send(403, {"error": "Solo un administrador puede moderar"})
+                return
+            self._send(200, {"ok": True, "reportes": social.reportes_pendientes()})
+            return
+
         if path == "/api/plan":
             s = self._session()
             if not s:
@@ -538,6 +579,60 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": ok})
             return
 
+        if self.path.startswith("/api/social/"):
+            s = self._session()
+            if not s:
+                self._send(401, {"error": "No autorizado"})
+                return
+            correo = s.get("usuario", "")
+            ruta = self.path
+
+            if ruta == "/api/social/perfil":
+                ok, err = social.guardar_perfil(correo, data.get("alias", ""),
+                                                data.get("bio", ""))
+                self._send(200, {"ok": ok, "error": err})
+            elif ruta == "/api/social/publicar":
+                if limite_excedido(correo, "publicar"):
+                    self._send(429, {"ok": False, "error":
+                        "Has publicado mucho en poco tiempo. Intenta de nuevo mas tarde."})
+                    return
+                ok, err = social.publicar(correo, data.get("texto", ""),
+                                          data.get("tipo", "mensaje"),
+                                          data.get("area"), data.get("grupo"))
+                if ok:
+                    anotar_intento(correo, "publicar")
+                self._send(200, {"ok": ok, "error": err})
+            elif ruta == "/api/social/borrar":
+                self._send(200, {"ok": social.borrar_publicacion(correo, data.get("id", 0))})
+            elif ruta == "/api/social/seguir":
+                self._send(200, {"ok": social.seguir(correo, data.get("id", 0),
+                                                     bool(data.get("seguir", True)))})
+            elif ruta == "/api/social/apoyar":
+                self._send(200, {"ok": social.apoyar(correo, data.get("id", 0),
+                                                     bool(data.get("apoyar", True)))})
+            elif ruta == "/api/social/grupo":
+                self._send(200, {"ok": social.unirse(correo, data.get("id", ""),
+                                                     bool(data.get("entrar", True)))})
+            elif ruta == "/api/social/bloquear":
+                self._send(200, {"ok": social.bloquear(correo, data.get("id", 0),
+                                                       bool(data.get("bloquear", True)))})
+            elif ruta == "/api/social/reportar":
+                self._send(200, {"ok": social.reportar(correo, data.get("id", 0),
+                                                       data.get("motivo", ""))})
+            else:
+                self._send(404, {"error": "Ruta desconocida"})
+            return
+
+        if self.path == "/api/admin/moderar":
+            s = self._session()
+            if not can_admin(s):
+                self._send(403, {"error": "Solo un administrador puede moderar"})
+                return
+            self._send(200, {"ok": social.moderar(data.get("publicacion_id", 0),
+                                                  bool(data.get("ocultar", True)),
+                                                  data.get("reporte_id"))})
+            return
+
         if self.path == "/api/evento":
             s = self._session()
             if not s:
@@ -605,6 +700,7 @@ def main():
     listo, porque = db.inicializar()
     if listo:
         print(" Base de datos: conectada | Cuentas registradas: %d" % db.contar_usuarios())
+        print(" Comunidad: %s" % ("lista" if social.inicializar() else "NO disponible"))
     else:
         print(" Base de datos: NO conectada (%s)" % porque)
         print("   -> el registro queda deshabilitado; el login sigue con usuarios.json")

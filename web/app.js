@@ -120,6 +120,7 @@ const FASES = [
   ["noventa","3 · Misión de 90 Días","¿Cuál será tu próximo destino?"],
   ["dia","4 · Mi Día","¿Qué harás hoy?"],
   ["evolucion","5 · Mi Evolución","¿Qué has logrado?"],
+  ["comunidad","Comunidad","Camina acompañado"],
   ["coach","Coach IA","Tu mentor 24/7"]
 ];
 
@@ -1165,7 +1166,8 @@ function copiarWhatsapp(){
 }
 
 // ---------- Render ----------
-const VMAP={inicio:vInicio, estado:vEstado, plan:vPlan, noventa:vNoventa, dia:vDia, evolucion:vEvolucion, coach:vCoach, actividad:vActividad};
+const VMAP={inicio:vInicio, estado:vEstado, plan:vPlan, noventa:vNoventa, dia:vDia, evolucion:vEvolucion, coach:vCoach, actividad:vActividad,
+  comunidad:(typeof vComunidad==="function"?vComunidad:vInicio)};
 function render(){
   // Sin sesion no se entra: el plan vive en el servidor, atado a una cuenta.
   if(!state.coach || !state.coach.token){
