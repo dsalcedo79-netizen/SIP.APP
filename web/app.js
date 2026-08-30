@@ -106,7 +106,7 @@ let state = JSON.parse(localStorage.getItem("sip_v3") || "null") || {
   diagnosticos:[], temperamento:{resp:{},resultado:""},
   foda:{f:"",o:"",d:"",a:""}, ikigai:{amas:"",bueno:"",mundo:"",valor:"",sintesis:""},
   planAnual:{vivir:"",crecer:"",contribuir:"",areas:{}},
-  declaracion:"", afirmaciones:[], aformaciones:[], vision:[],
+  declaracion:"", afirmaciones:[], aformaciones:[], vision:[], analisisArea:{},
   metas:[],
   ciclo:null, ciclos:[],           // ciclo = {inicio,prioridades:[],metas90:[],firma,firmadoEl}
   habitos:[], registros:{}, sesiones:[],
@@ -115,6 +115,7 @@ let state = JSON.parse(localStorage.getItem("sip_v3") || "null") || {
   coach:{token:"",nombre:"",msgs:[]}
 };
 state.viaje = state.viaje || {inicio: state.perfil && state.perfil.nombre ? hoyF() : ""};
+state.analisisArea = state.analisisArea || {};
 let vista = "inicio";
 function hoyF(){ return new Date().toLocaleDateString("sv-SE"); }
 function save(){ localStorage.setItem("sip_v3", JSON.stringify(state)); }
@@ -275,6 +276,12 @@ function vEstado(){
       <br><div class="centro" id="radarBox">${radar(diagTmp)}</div>
       <div class="centro"><button class="btn" onclick="guardarDiag()">Guardar mi rueda</button></div>
       ${state.diagnosticos.length?`<br>${state.diagnosticos.slice().reverse().map(x=>`<div class="lista-item"><span>${x.fecha}</span><span class="tag dorado">Promedio ${promedio(x)}</span></div>`).join("")}`:""}
+    </div></details>
+
+  <details class="area"><summary><span>Análisis por Área<br><span class="objetivo">¿Cómo podría mejorar mi calificación en un año?</span></span></summary>
+    <div class="cuerpo">
+      ${["Espiritual","Emocional","Mental","Salud","Personalidad","Familiar","Social","Ocupacional","Economico","CalidadVida"].map(k=>
+        `<label class="campo">${k==="CalidadVida"?"Calidad de Vida":k==="Economico"?"Económico":k}</label><textarea onblur="campo('analisisArea','${k}',this.value)" style="min-height:60px;" placeholder="¿Cómo mejorar en esta área?">${esc(state.analisisArea[k])}</textarea>`).join("")}
     </div></details>
 
   <details class="area"><summary><span>Taller 2 · Test de Temperamento<br><span class="objetivo">¿Cómo eres? Los 4 temperamentos clásicos</span></span><span class="tag ${t.resultado?"":"dorado"}">${t.resultado?"✓ "+t.resultado:"Pendiente"}</span></summary>

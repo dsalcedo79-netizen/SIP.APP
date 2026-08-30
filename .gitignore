@@ -1,3 +1,17 @@
+# ============================================================
+#  SECRETOS — nunca subir a GitHub
+#  (config.txt contiene la clave de API del proveedor de IA)
+# ============================================================
+config.txt
+*.key
+
+# ============================================================
+#  Respaldos locales
+#  El versionado se hace con git, no renombrando archivos.
+# ============================================================
+*.respaldo-*
+*.bak
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

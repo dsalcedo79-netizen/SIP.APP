@@ -24,12 +24,12 @@ USERS_PATH = os.path.join(BASE_DIR, "usuarios.json")
 
 DEFAULT_MODELS = {
     "gemini": "gemini-2.5-flash",
-    "anthropic": "claude-sonnet-4-6",
-    "groq": "llama-3.3-70b-versatile",
+    "anthropic": "claude-sonnet-5",
+    "groq": "openai/gpt-oss-120b",
 }
 ANTHROPIC_ALIAS = {
-    "opus": "claude-opus-4-8",
-    "sonnet": "claude-sonnet-4-6",
+    "opus": "claude-opus-5",
+    "sonnet": "claude-sonnet-5",
     "haiku": "claude-haiku-4-5-20251001",
 }
 PBKDF2_ITERS = 200000
@@ -85,7 +85,7 @@ def verify_password(password, salt, expected_hex):
 
 def default_users():
     salt, h = hash_password(CONFIG.get("PASSWORD", "sigei"))
-    return {"roles": {"presidente": {"etiqueta": "Presidente", "directores": "*"}},
+    return {"roles": {"presidente": {"etiqueta": "Presidente"}},
             "usuarios": [{"usuario": "ceo", "nombre": "CEO", "rol": "presidente",
                           "salt": salt, "hash": h}]}
 
@@ -110,14 +110,6 @@ def find_user(usuario):
         if u.get("usuario", "").lower() == str(usuario).lower():
             return u
     return None
-
-
-def role_allowed(rol):
-    r = USERS.get("roles", {}).get(rol, {})
-    dirs = r.get("directores", "*")
-    if dirs == "*":
-        return "*"
-    return set(dirs or [])
 
 
 def role_label(rol):
@@ -159,78 +151,12 @@ def discover_directors():
     return result
 
 
-def directors_for(allowed):
-    dirs = discover_directors()
-    if allowed == "*":
-        return dirs
-    return [d for d in dirs if d["name"] in allowed]
-
-
 def get_director(name):
     safe = os.path.basename(str(name))
     path = os.path.join(AGENTS_DIR, safe + ".md")
     if not os.path.exists(path):
         return None
     return parse_agent(path)
-
-
-AREA_LABELS = {
-    "ceo": "Dirección Ejecutiva", "cfo": "Dirección Financiera",
-    "cmo": "Dirección de Marketing", "cco": "Dirección Comercial",
-    "coo": "Dirección de Operaciones", "chro": "Dirección de Talento Humano",
-    "clo": "Dirección Jurídica y Cumplimiento", "cdo": "Dirección de Desarrollo Organizacional",
-    "cino": "Dirección de Innovación", "cio": "Dirección de Inteligencia Organizacional",
-}
-
-
-def all_agents():
-    """Todos los .md de agents/: directores (-ia-) y coordinadores."""
-    res = []
-    if not os.path.isdir(AGENTS_DIR):
-        return res
-    for fn in sorted(os.listdir(AGENTS_DIR)):
-        if not fn.endswith(".md"):
-            continue
-        try:
-            a = parse_agent(os.path.join(AGENTS_DIR, fn))
-            a["grupo"] = a["name"].split("-")[0]
-            a["es_director"] = "-ia-" in a["name"]
-            res.append(a)
-        except Exception:
-            pass
-    return res
-
-
-def allowed_prefixes(allowed):
-    if allowed == "*":
-        return "*"
-    return {a.split("-")[0] for a in allowed}
-
-
-def grouped_agents(allowed):
-    pref = allowed_prefixes(allowed)
-    agents = all_agents()
-    grupos = {}
-    for a in agents:
-        g = a["grupo"]
-        if pref != "*" and g not in pref:
-            continue
-        grupos.setdefault(g, {"grupo": g, "etiqueta": AREA_LABELS.get(g, g.upper()),
-                              "director": None, "coordinadores": []})
-        item = {"name": a["name"], "title": a["title"]}
-        if a["es_director"]:
-            grupos[g]["director"] = item
-        else:
-            grupos[g]["coordinadores"].append(item)
-    order = ["ceo", "cfo", "cmo", "cco", "coo", "chro", "clo", "cdo", "cino", "cio"]
-    return [grupos[g] for g in order if g in grupos] + \
-           [v for k, v in grupos.items() if k not in order]
-
-
-def agent_allowed(allowed, name):
-    if allowed == "*":
-        return True
-    return name.split("-")[0] in allowed_prefixes(allowed)
 
 
 def resolve_model(director):
@@ -315,8 +241,7 @@ def new_session(user):
                      "rol": user.get("rol"),
                      "etiqueta": user.get("cargo") or role_label(user.get("rol")),
                      "tipo": user.get("tipo", "editor"),
-                     "menus": user.get("menus", "*"),
-                     "allowed": role_allowed(user.get("rol"))}
+                     "menus": user.get("menus", "*")}
     cutoff = time.time() - SESSION_TTL
     for t in list(SESSIONS):
         if SESSIONS[t]["ts"] < cutoff:
@@ -371,41 +296,6 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/healthz":
             self._send(200, {"ok": True, "provider": CONFIG.get("PROVIDER")})
             return
-        if path == "/api/directors":
-            s = self._session()
-            if not s:
-                self._send(401, {"error": "No autorizado"})
-                return
-            dirs = [{"name": d["name"], "title": d["title"]} for d in directors_for(s["allowed"])]
-            self._send(200, {"directors": dirs})
-            return
-        if path == "/api/agents":
-            s = self._session()
-            if not s:
-                self._send(401, {"error": "No autorizado"})
-                return
-            self._send(200, {"grupos": grouped_agents(s["allowed"])})
-            return
-        if path == "/api/dominios":
-            s = self._session()
-            if not s:
-                self._send(401, {"error": "No autorizado"})
-                return
-            dominios = [
-                {"id": "gobernanza", "nombre": "Gobierno Corporativo", "icono": "🏛️", "agentes": 0},
-                {"id": "estrategia", "nombre": "Estrategia Empresarial", "icono": "🎯", "agentes": 0},
-                {"id": "finanzas", "nombre": "Finanzas y Control", "icono": "💰", "agentes": 6},
-                {"id": "marketing", "nombre": "Marketing y Posicionamiento", "icono": "📣", "agentes": 1},
-                {"id": "comercial", "nombre": "Clientes e Ingresos", "icono": "📈", "agentes": 6},
-                {"id": "operaciones", "nombre": "Operaciones", "icono": "⚙️", "agentes": 1},
-                {"id": "talento", "nombre": "Talento y Cultura", "icono": "👥", "agentes": 3},
-                {"id": "legal", "nombre": "Legal y Compliance", "icono": "⚖️", "agentes": 1},
-                {"id": "calidad", "nombre": "Calidad y Gestión", "icono": "🏅", "agentes": 3},
-                {"id": "innovacion", "nombre": "Innovación Digital", "icono": "⚡", "agentes": 1},
-                {"id": "inteligencia", "nombre": "Inteligencia Organizacional", "icono": "🧠", "agentes": 1},
-            ]
-            self._send(200, {"dominios": dominios})
-            return
         if path == "/api/users":
             s = self._session()
             if not can_admin(s):
@@ -452,24 +342,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, {"ok": False, "error": "Usuario o contrasena incorrectos"})
             return
 
-        if self.path == "/api/directors":
-            s = self._session()
-            if not s:
-                self._send(401, {"error": "No autorizado"})
-                return
-            dirs = [{"name": d["name"], "title": d["title"]} for d in directors_for(s["allowed"])]
-            self._send(200, {"directors": dirs})
-            return
-
         if self.path == "/api/chat":
             s = self._session()
             if not s:
                 self._send(401, {"error": "No autorizado"})
                 return
             director_name = data.get("director", "")
-            if not agent_allowed(s["allowed"], director_name):
-                self._send(403, {"ok": False, "error": "No tienes acceso a este agente."})
-                return
             messages = data.get("messages", [])
             d = get_director(director_name)
             if not d:

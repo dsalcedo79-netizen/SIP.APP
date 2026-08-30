@@ -1,18 +1,13 @@
 {
   "roles": {
     "presidente": {
-      "etiqueta": "Presidente",
-      "directores": "*"
+      "etiqueta": "Presidente"
     },
     "vicepresidente": {
-      "etiqueta": "Vicepresidencia",
-      "directores": "*"
+      "etiqueta": "Vicepresidencia"
     },
     "cliente": {
-      "etiqueta": "Cliente externo",
-      "directores": [
-        "cco-ia-comercial"
-      ]
+      "etiqueta": "Cliente externo"
     }
   },
   "usuarios": [

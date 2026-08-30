@@ -12,7 +12,7 @@ Menu:
     1) Listar usuarios
     2) Agregar / cambiar usuario
     3) Eliminar usuario
-    4) Ver / editar roles (que directores ve cada rol)
+    4) Ver roles
     5) Salir
 
 Despues de cambiar usuarios, vuelve a subir usuarios.json a GitHub para que
@@ -29,9 +29,9 @@ USERS_PATH = os.path.join(BASE_DIR, "usuarios.json")
 PBKDF2_ITERS = 200000
 
 ROLES_BASE = {
-    "presidente":     {"etiqueta": "Presidente",      "directores": "*"},
-    "vicepresidente": {"etiqueta": "Vicepresidencia", "directores": "*"},
-    "cliente":        {"etiqueta": "Cliente externo", "directores": ["cco-ia-comercial"]},
+    "presidente":     {"etiqueta": "Presidente"},
+    "vicepresidente": {"etiqueta": "Vicepresidencia"},
+    "cliente":        {"etiqueta": "Cliente externo"},
 }
 
 
@@ -103,17 +103,13 @@ def eliminar(data):
 
 
 def roles(data):
-    print("\n  ROLES (que directores ve cada rol):")
+    print("\n  ROLES:")
     for r, info in data.get("roles", {}).items():
-        d = info.get("directores", "*")
-        d = "TODOS" if d == "*" else ", ".join(d) if d else "(ninguno)"
-        print("   - %-14s [%s] -> %s" % (r, info.get("etiqueta", r), d))
-    print("\n  Para cambiar que ve un rol, edita usuarios.json en la seccion 'roles'.")
-    print("  Usa \"*\" para todos, o una lista de nombres como: [\"cco-ia-comercial\"]")
-    print("  Nombres de director validos: ceo-ia-holding, cfo-ia-financiero,")
-    print("  cmo-ia-marketing, cco-ia-comercial, coo-ia-operaciones,")
-    print("  chro-ia-talento-humano, clo-ia-juridico, cdo-ia-desarrollo-organizacional,")
-    print("  cino-ia-innovacion, cio-ia-inteligencia-organizacional")
+        admin = "administra usuarios" if r in ("presidente", "vicepresidente") else "solo Coach IA"
+        print("   - %-14s [%s] -> %s" % (r, info.get("etiqueta", r), admin))
+    print("\n  Todos los usuarios, sea cual sea su rol, pueden conversar con el Coach IA.")
+    print("  Solo 'presidente' y 'vicepresidente' pueden crear/ver usuarios (menu web).")
+    print("  Para agregar un rol nuevo, edita usuarios.json en la seccion 'roles'.")
 
 
 def main():
