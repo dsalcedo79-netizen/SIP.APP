@@ -160,7 +160,98 @@ state.motivaArea   = state.motivaArea   || {};
 })();
 let vista = "inicio";
 function hoyF(){ return new Date().toLocaleDateString("sv-SE"); }
-function save(){ localStorage.setItem("sip_v3", JSON.stringify(state)); }
+function save(){ localStorage.setItem("sip_v3", JSON.stringify(state)); programarGuardado(); }
+
+// ---------- Sincronizacion con el servidor ----------
+// El navegador sigue siendo la copia de trabajo: la app funciona sin conexion
+// y no espera al servidor para nada. El servidor guarda la copia durable.
+let guardadoTimer = null, subiendo = false, conflicto = null;
+let estadoSync = "";   // texto que se muestra al usuario
+
+// El token es de la sesion, no del plan: nunca se guarda en el servidor.
+function planParaSubir(){
+  const copia = JSON.parse(JSON.stringify(state));
+  if(copia.coach) copia.coach.token = "";
+  delete copia._rev;
+  return copia;
+}
+
+// Si el servidor se reinicio, el token guardado ya no vale. Hay que decirlo:
+// un guardado que falla en silencio es peor que no tener guardado.
+function sesionExpirada(){
+  state.coach.token = ""; state.coach.rol = ""; state.coach.modo = "entrar";
+  estadoSync = "Tu sesion expiro. Entra de nuevo para seguir guardando.";
+  save(); render();
+}
+
+function programarGuardado(){
+  if(!state.coach || !state.coach.token) return;
+  clearTimeout(guardadoTimer);
+  guardadoTimer = setTimeout(subirPlan, 2500);
+}
+
+async function subirPlan(opciones){
+  if(subiendo || !state.coach.token) return;
+  subiendo = true;
+  const forzar = opciones && opciones.forzar;
+  try{
+    const r = await fetch("/api/plan",{method:"POST",
+      headers:{"Content-Type":"application/json","X-Session":state.coach.token},
+      keepalive: true,
+      body: JSON.stringify({datos: planParaSubir(),
+                            revision: forzar ? (conflicto ? conflicto.revision : state._rev||0)
+                                             : (state._rev||0)})});
+    if(r.status === 401){ subiendo = false; sesionExpirada(); return; }
+    const j = await r.json();
+    if(j.ok){ state._rev = j.revision; estadoSync = "Guardado"; conflicto = null; save(); }
+    else if(j.conflicto){ conflicto = j; estadoSync = "Hay otra version"; render(); }
+    else { estadoSync = j.error || "No se pudo guardar"; }
+  }catch(e){ estadoSync = "Sin conexion: guardado local"; }
+  subiendo = false;
+  const el = document.getElementById("syncMsg"); if(el) el.textContent = estadoSync;
+}
+
+// Reemplaza el estado local por el del servidor, conservando la sesion actual.
+function aplicarPlan(j){
+  const token = state.coach.token, nombre = state.coach.nombre, rol = state.coach.rol;
+  state = j.datos;
+  state.coach = state.coach || {};
+  state.coach.token = token; state.coach.nombre = nombre; state.coach.rol = rol;
+  state.coach.modo = "entrar";
+  state._rev = j.revision;
+  save();
+}
+
+function hayDatosLocales(){
+  return !!(state.perfil && state.perfil.nombre) ||
+         (state.diagnosticos && state.diagnosticos.length > 0);
+}
+
+// Al entrar se decide que copia vale. Si ambas tienen contenido no se pisa
+// ninguna: se le pregunta a la persona.
+async function sincronizarAlEntrar(){
+  try{
+    const r = await fetch("/api/plan",{headers:{"X-Session":state.coach.token}});
+    if(r.status === 401){ sesionExpirada(); return; }
+    const j = await r.json();
+    if(!j.ok) return;
+    if(!j.existe){
+      if(hayDatosLocales()) await subirPlan();
+      else { state._rev = 0; save(); }
+      return;
+    }
+    if(!hayDatosLocales()){ aplicarPlan(j); return; }
+    if((state._rev||0) === j.revision) return;   // al dia
+    conflicto = j;                                // dos versiones: decide la persona
+  }catch(e){ /* sin conexion: se sigue con la copia local */ }
+  render();
+}
+
+function resolverConflicto(cual){
+  if(cual === "servidor"){ aplicarPlan(conflicto); conflicto = null; render(); }
+  else { const c = conflicto; conflicto = null; state._rev = c.revision;
+         save(); subirPlan({forzar:true}); render(); }
+}
 
 // Avisa al servidor de un hito del metodo, para poder medir activacion y
 // retencion. Silencioso: si falla, el usuario no se entera ni se interrumpe.
@@ -727,43 +818,18 @@ function vCoach(){
     ${ins.map(x=>`<div class="insight">${x}</div>`).join("")}
     <p class="aviso">El Coach IA acompaña tu proceso de crecimiento personal. No es un terapeuta ni un profesional de la salud, y no reemplaza atención médica, psicológica ni financiera. Si estás atravesando una crisis, busca ayuda profesional.</p></div>
   <div class="card">
-    ${!c.token ? (c.modo==="registro" ? `
-      <h3>Crea tu cuenta</h3>
-      <p class="sub">Con tu cuenta guardas tu avance y entras al grupo de WhatsApp de Maestría de Vida.</p>
-      <label class="campo">Nombre completo</label><input type="text" id="rNom" placeholder="Como quieres que te llamemos">
-      <label class="campo">Correo</label><input type="text" id="rEmail" placeholder="tucorreo@ejemplo.com">
-      <label class="campo">WhatsApp (con indicativo del país)</label><input type="text" id="rWa" placeholder="+57 300 123 4567">
-      <label class="campo">Contraseña (mínimo 8 caracteres)</label><input type="password" id="rPwd" placeholder="········">
-      <div class="lista-item" style="align-items:flex-start;gap:8px;margin-top:12px;">
-        <input type="checkbox" id="rAcepta" style="width:auto;margin-top:3px;flex:0 0 auto;">
-        <label for="rAcepta" style="font-size:.82rem;color:var(--gris);cursor:pointer;">
-          Autorizo que Maestría de Vida guarde mi nombre, correo y WhatsApp para darme acceso al programa
-          y agregarme al grupo. Puedo pedir que borren mis datos cuando quiera escribiendo al mismo correo.
-          No se comparten con terceros.
-        </label>
-      </div>
-      <br><button class="btn" onclick="coachRegistro()">Crear mi cuenta</button>
-      <button class="btn-mini" onclick="coachModo('entrar')">Ya tengo cuenta</button>
-      <br><span class="aviso" id="cErr"></span>` : `
-      <h3>Inicia sesión para conversar con tu Coach</h3>
-      <p class="sub">Entra con el correo con el que te registraste.</p>
-      <div class="fila"><input type="text" id="cu" placeholder="Correo o usuario"><input type="password" id="cp" placeholder="Contraseña"></div>
-      <br><button class="btn" onclick="coachLogin()">Entrar</button>
-      <button class="btn-mini" onclick="coachModo('registro')">Crear una cuenta</button>
-      <br><span class="aviso" id="cErr"></span>`)
-    : `
-      <h3>Conversación ${c.nombre?("· "+esc(c.nombre)):""}</h3>
+    <h3>Conversación ${c.nombre?("· "+esc(c.nombre)):""}</h3>
       <div class="chat" id="chatBox">${c.msgs.map(m=>`<div class="msg ${m.role==="user"?"user":"coach"}">${esc(m.content)}</div>`).join("") || '<div class="msg coach">¡Hola! Soy tu Coach de Maestría de Vida. ¿En qué parte de tu viaje quieres que te acompañe hoy?</div>'}</div>
       <div class="fila"><input type="text" id="chatTxt" value="${esc(c.draft||"")}" placeholder="Escríbele a tu coach..." onkeydown="if(event.key==='Enter')coachSend()"><button class="btn" onclick="coachSend()" id="chatBtn">Enviar</button></div>
-      <p class="aviso">El Coach conoce tu fase, tu rueda, tus metas y tu racha. <button class="btn-mini" onclick="coachReset()">Reiniciar conversación</button></p>`}
-  </div>`;
+      <p class="aviso">El Coach conoce tu fase, tu rueda, tus metas y tu racha. <button class="btn-mini" onclick="coachReset()">Reiniciar conversación</button></p>
+  </div>` + bloqueCuenta();
 }
 async function coachLogin(){
   const u=document.getElementById("cu").value.trim(), p=document.getElementById("cp").value;
   try{
     const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({usuario:u,password:p})});
     const j=await r.json();
-    if(j.ok){ state.coach.token=j.token; state.coach.nombre=j.nombre; state.coach.rol=j.rol; save(); render(); }
+    if(j.ok){ state.coach.token=j.token; state.coach.nombre=j.nombre; state.coach.rol=j.rol; save(); render(); sincronizarAlEntrar(); }
     else document.getElementById("cErr").textContent = j.error||"Error de acceso";
   }catch(e){ document.getElementById("cErr").textContent="No hay conexión con el servidor. Inicia INICIAR_SIP.bat"; }
 }
@@ -802,9 +868,121 @@ async function coachRegistro(){
       state.coach.token=j.token; state.coach.nombre=j.nombre; state.coach.rol=j.rol;
       state.coach.modo="entrar";
       if(!state.perfil.nombre){ state.perfil.nombre=j.nombre; state.viaje.inicio=hoy(); }
-      save(); render();
+      save(); render(); sincronizarAlEntrar();
     } else { err.textContent = j.error || "No se pudo crear la cuenta."; }
   }catch(e){ err.textContent = "No hay conexión con el servidor."; }
+}
+
+// ---------- ACCESO (obligatorio desde ahora) ----------
+function vAcceso(){
+  const c = state.coach;
+  const registro = c.modo === "registro";
+  return `<div class="card centro">
+      <div class="lema">Vive · Crece · Contribuye</div>
+      <h2>Sistema Integral de Propósito</h2>
+      <p class="sub">Un viaje guiado por cinco preguntas para transformar tu vida.</p>
+    </div>
+  <div class="card">
+    ${registro ? `
+      <h2>Crea tu cuenta</h2>
+      <p class="sub">Tu avance queda guardado y lo recuperas desde cualquier dispositivo. Además entras al grupo de WhatsApp de Maestría de Vida.</p>
+      <label class="campo">Nombre completo</label><input type="text" id="rNom" placeholder="Como quieres que te llamemos">
+      <label class="campo">Correo</label><input type="text" id="rEmail" placeholder="tucorreo@ejemplo.com">
+      <label class="campo">WhatsApp (con indicativo del país)</label><input type="text" id="rWa" placeholder="+57 300 123 4567">
+      <label class="campo">Contraseña (mínimo 8 caracteres)</label><input type="password" id="rPwd" placeholder="········">
+      <div class="lista-item" style="align-items:flex-start;gap:8px;margin-top:12px;">
+        <input type="checkbox" id="rAcepta" style="width:auto;margin-top:3px;flex:0 0 auto;">
+        <label for="rAcepta" style="font-size:.82rem;color:var(--gris);cursor:pointer;">
+          Autorizo a Maestría de Vida a guardar mi nombre, correo y WhatsApp, y también
+          <b>las respuestas de mis talleres, mis metas, hábitos y anotaciones diarias</b>,
+          con el fin de darme el programa y poder recuperarlo en cualquier dispositivo.
+          Es información personal e íntima: no se comparte con terceros ni se vende.
+          Puedo descargarla o pedir que se borre por completo cuando quiera, desde la
+          pantalla del Coach.
+        </label>
+      </div>
+      <br><button class="btn" onclick="coachRegistro()">Crear mi cuenta</button>
+      <button class="btn-mini" onclick="coachModo('entrar')">Ya tengo cuenta</button>
+      <br><span class="aviso" id="cErr"></span>`
+    : `
+      <h2>Entra a tu viaje</h2>
+      <p class="sub">Usa el correo con el que te registraste.</p>
+      <div class="fila"><input type="text" id="cu" placeholder="Correo"><input type="password" id="cp" placeholder="Contraseña"></div>
+      <br><button class="btn" onclick="coachLogin()">Entrar</button>
+      <button class="btn-mini" onclick="coachModo('registro')">Crear una cuenta</button>
+      <br><span class="aviso" id="cErr"></span>`}
+  </div>`;
+}
+
+function vConflicto(){
+  const local = state.perfil.nombre ? esc(state.perfil.nombre) : "este dispositivo";
+  return `<div class="card"><div class="lema">Dos versiones de tu plan</div>
+    <h2>¿Cuál quieres conservar?</h2>
+    <p class="sub">Encontramos avances distintos en este dispositivo y en el servidor. No vamos a borrar ninguno sin que tú decidas.</p>
+    <div class="compuerta">
+      <b>Este dispositivo</b><br><span class="aviso">Lo que ves ahora, a nombre de ${local}.</span>
+      <br><br><button class="btn" onclick="resolverConflicto('local')">Conservar el de este dispositivo</button>
+    </div>
+    <div class="compuerta">
+      <b>El servidor</b><br><span class="aviso">Guardado por última vez el ${esc(conflicto.actualizado_en||"–")}.</span>
+      <br><br><button class="btn" onclick="resolverConflicto('servidor')">Traer el del servidor</button>
+    </div>
+    <p class="aviso">Consejo: antes de decidir puedes descargar una copia de lo que tienes ahora con el botón «Descargar mi plan» del Coach.</p></div>`;
+}
+
+// ---------- MI CUENTA: copia, cierre de sesion y borrado ----------
+function bloqueCuenta(){
+  return `<div class="card"><h2>Mi cuenta</h2>
+    <p class="sub">Sesión de <b>${esc(state.coach.nombre||"")}</b>. <span class="aviso" id="syncMsg">${esc(estadoSync)}</span></p>
+    <div class="fila" style="flex-wrap:wrap;gap:8px;">
+      <button class="btn-sec" onclick="descargarPlan()">Descargar mi plan</button>
+      <button class="btn-sec" onclick="document.getElementById('archivoPlan').click()">Restaurar desde archivo</button>
+      <button class="btn-sec" onclick="cerrarSesion()">Cerrar sesión</button>
+    </div>
+    <input type="file" id="archivoPlan" accept="application/json" style="display:none" onchange="restaurarPlan(this)">
+    <p class="aviso" style="margin-top:12px;">¿Quieres irte? <button class="btn-mini" style="color:var(--rojo);text-decoration:underline;" onclick="borrarTodo()">Borrar mi cuenta y todos mis datos</button></p></div>`;
+}
+
+function descargarPlan(){
+  const blob = new Blob([JSON.stringify(planParaSubir(), null, 2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "mi-plan-maestria-de-vida-" + hoy() + ".json";
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function restaurarPlan(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  const lector = new FileReader();
+  lector.onload = function(){
+    try{
+      const datos = JSON.parse(lector.result);
+      if(!datos || typeof datos !== "object" || !datos.perfil) throw new Error("formato");
+      if(!confirm("Esto reemplaza tu plan actual por el del archivo. ¿Continuar?")) return;
+      aplicarPlan({datos: datos, revision: state._rev||0});
+      subirPlan({forzar:true}); render();
+    }catch(e){ alert("Ese archivo no parece un plan de Maestría de Vida."); }
+  };
+  lector.readAsText(f);
+  input.value = "";
+}
+
+function cerrarSesion(){
+  state.coach.token=""; state.coach.rol=""; state.coach.modo="entrar";
+  save(); render();
+}
+
+async function borrarTodo(){
+  if(!confirm("Se borrará tu cuenta y todo tu plan del servidor. Esto no se puede deshacer.\n\n¿Seguro?")) return;
+  if(!confirm("Última confirmación: perderás tu rueda, tus metas, tus hábitos y tus anotaciones.")) return;
+  try{
+    await fetch("/api/cuenta/borrar",{method:"POST",headers:{"X-Session":state.coach.token}});
+  }catch(e){}
+  localStorage.removeItem("sip_v3");
+  localStorage.removeItem("sip_rueda_vida_v1");
+  localStorage.removeItem("sip_rueda_historial_v1");
+  localStorage.removeItem("sip_rueda_estado_ideal");
+  location.reload();
 }
 
 // ---------- PANEL DE ACTIVIDAD (solo administradores) ----------
@@ -873,6 +1051,17 @@ function copiarWhatsapp(){
 // ---------- Render ----------
 const VMAP={inicio:vInicio, estado:vEstado, plan:vPlan, noventa:vNoventa, dia:vDia, evolucion:vEvolucion, coach:vCoach, actividad:vActividad};
 function render(){
+  // Sin sesion no se entra: el plan vive en el servidor, atado a una cuenta.
+  if(!state.coach || !state.coach.token){
+    document.getElementById("viaje").innerHTML = "";
+    document.getElementById("main").innerHTML = vAcceso();
+    return;
+  }
+  if(conflicto){
+    document.getElementById("viaje").innerHTML = "";
+    document.getElementById("main").innerHTML = vConflicto();
+    return;
+  }
   pintarViaje();
   revisarHitos();
   if(!state.perfil.nombre) vista="inicio";
@@ -884,3 +1073,12 @@ if(state.perfil.nombre){
   vista = !fase1Done()?"inicio":!fase2Done()?"inicio":!cicloActivo()?"inicio":"dia";
 }
 render();
+if(state.coach && state.coach.token) sincronizarAlEntrar();
+
+// Al cerrar o dejar la pestana se manda lo pendiente. keepalive permite que la
+// peticion sobreviva a la salida de la pagina.
+document.addEventListener("visibilitychange", function(){
+  if(document.visibilityState === "hidden" && state.coach && state.coach.token){
+    clearTimeout(guardadoTimer); subirPlan();
+  }
+});

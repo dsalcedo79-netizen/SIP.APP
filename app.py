@@ -327,6 +327,21 @@ class Handler(BaseHTTPRequestHandler):
                              "db_diagnostico": db.diagnostico(),
                              "db_otras_variables": db.variables_parecidas()})
             return
+        if path == "/api/plan":
+            s = self._session()
+            if not s:
+                self._send(401, {"error": "No autorizado"})
+                return
+            fila = db.leer_plan(s.get("usuario", ""))
+            if not fila:
+                self._send(200, {"ok": True, "existe": False, "revision": 0})
+                return
+            self._send(200, {"ok": True, "existe": True,
+                             "datos": fila["datos"], "revision": fila["revision"],
+                             "actualizado_en": fila["actualizado_en"].isoformat(
+                                 sep=" ", timespec="minutes")})
+            return
+
         if path == "/api/admin/actividad":
             s = self._session()
             if not can_admin(s):
@@ -455,6 +470,54 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "token": tok, "nombre": ses["nombre"],
                              "rol": ses["rol"], "etiqueta": ses["etiqueta"],
                              "tipo": ses["tipo"], "menus": ses["menus"]})
+            return
+
+        if self.path == "/api/plan":
+            s = self._session()
+            if not s:
+                self._send(401, {"error": "No autorizado"})
+                return
+            datos = data.get("datos")
+            if not isinstance(datos, dict):
+                self._send(200, {"ok": False, "error": "Datos invalidos."})
+                return
+            estado, valor = db.guardar_plan(
+                s.get("usuario", ""), json.dumps(datos, ensure_ascii=False),
+                data.get("revision", 0))
+            if estado == "ok":
+                self._send(200, {"ok": True, "revision": valor})
+            elif estado == "conflicto":
+                # Otro dispositivo guardo primero. Se devuelve la copia del
+                # servidor para que la persona elija; nunca se pisa en silencio.
+                fila = db.leer_plan(s.get("usuario", ""))
+                self._send(200, {"ok": False, "conflicto": True,
+                                 "revision": fila["revision"] if fila else 0,
+                                 "actualizado_en": fila["actualizado_en"].isoformat(
+                                     sep=" ", timespec="minutes") if fila else None,
+                                 "datos": fila["datos"] if fila else None})
+            else:
+                self._send(200, {"ok": False, "error": valor})
+            return
+
+        if self.path == "/api/plan/borrar":
+            s = self._session()
+            if not s:
+                self._send(401, {"error": "No autorizado"})
+                return
+            ok = db.borrar_plan(s.get("usuario", ""))
+            self._send(200, {"ok": ok})
+            return
+
+        if self.path == "/api/cuenta/borrar":
+            s = self._session()
+            if not s:
+                self._send(401, {"error": "No autorizado"})
+                return
+            # Derecho de borrado: se va la cuenta, el plan y los eventos.
+            ok = db.borrar_cuenta(s.get("usuario", ""))
+            if ok:
+                SESSIONS.pop(self.headers.get("X-Session", ""), None)
+            self._send(200, {"ok": ok})
             return
 
         if self.path == "/api/evento":

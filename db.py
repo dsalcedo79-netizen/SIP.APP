@@ -61,6 +61,18 @@ CREATE TABLE IF NOT EXISTS eventos (
 CREATE INDEX IF NOT EXISTS eventos_usuario_idx ON eventos (usuario_id, creado_en DESC);
 CREATE INDEX IF NOT EXISTS eventos_fecha_idx   ON eventos (creado_en DESC);
 
+-- El plan de vida completo de cada persona, como documento JSON.
+-- Se guarda entero en vez de repartido en tablas porque la estructura del
+-- metodo todavia evoluciona; JSONB permite consultarlo por dentro igual.
+-- `revision` sube en cada guardado y sirve para detectar que la misma
+-- persona edito desde dos dispositivos sin que se pierda nada en silencio.
+CREATE TABLE IF NOT EXISTS planes (
+    usuario_id     BIGINT      PRIMARY KEY REFERENCES usuarios(id) ON DELETE CASCADE,
+    datos          JSONB       NOT NULL,
+    revision       BIGINT      NOT NULL DEFAULT 1,
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Por si la tabla se creo antes de que existiera el WhatsApp.
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS whatsapp      TEXT;
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS whatsapp_norm TEXT;
@@ -79,6 +91,7 @@ EVENTOS = {
     "plan_firmado":   "Firmo su plan de 90 dias",
     "dia_evaluado":   "Evaluo su dia",
     "coach":          "Converso con el Coach IA",
+    "plan_guardado":  "Guardo su plan en el servidor",
 }
 
 
@@ -331,6 +344,95 @@ def lista_whatsapp():
     except Exception as e:
         print("  ! db.lista_whatsapp:", e)
         return []
+
+
+# Tope de tamano del plan. Un plan real ronda unas decenas de kilobytes;
+# un megabyte deja muchisimo margen y evita que alguien llene la base.
+LIMITE_PLAN = 1_000_000
+
+
+def leer_plan(email):
+    """Devuelve {datos, revision, actualizado_en} o None si esa persona
+    todavia no ha guardado nada."""
+    if not disponible():
+        return None
+    try:
+        with _conectar() as con, con.cursor() as cur:
+            cur.execute(
+                "SELECT p.datos, p.revision, p.actualizado_en "
+                "  FROM planes p JOIN usuarios u ON u.id = p.usuario_id "
+                " WHERE u.email_norm = %s", (normalizar_email(email),))
+            return cur.fetchone()
+    except Exception as e:
+        print("  ! db.leer_plan:", e)
+        return None
+
+
+def guardar_plan(email, datos_json, revision_base):
+    """Guarda el plan solo si nadie lo cambio desde que el cliente lo leyo.
+
+    Devuelve (estado, valor):
+      ("ok", nueva_revision)      guardado
+      ("conflicto", None)         otro dispositivo guardo primero
+      ("error", mensaje)          no se pudo
+    """
+    if not disponible():
+        return "error", "La base de datos no esta conectada."
+    if len(datos_json) > LIMITE_PLAN:
+        return "error", "El plan es demasiado grande para guardarse."
+    try:
+        with _conectar() as con, con.cursor() as cur:
+            cur.execute(
+                "INSERT INTO planes (usuario_id, datos, revision) "
+                "SELECT u.id, %s::jsonb, 1 FROM usuarios u WHERE u.email_norm = %s "
+                "ON CONFLICT (usuario_id) DO UPDATE "
+                "   SET datos = EXCLUDED.datos, "
+                "       revision = planes.revision + 1, "
+                "       actualizado_en = now() "
+                " WHERE planes.revision = %s "
+                "RETURNING revision",
+                (datos_json, normalizar_email(email), int(revision_base or 0)))
+            fila = cur.fetchone()
+            con.commit()
+        if not fila:
+            return "conflicto", None
+        return "ok", fila["revision"]
+    except Exception as e:
+        print("  ! db.guardar_plan:", e)
+        return "error", "No se pudo guardar. Se intentara de nuevo."
+
+
+def borrar_plan(email):
+    """Borra el plan pero conserva la cuenta."""
+    if not disponible():
+        return False
+    try:
+        with _conectar() as con, con.cursor() as cur:
+            cur.execute(
+                "DELETE FROM planes WHERE usuario_id = "
+                "(SELECT id FROM usuarios WHERE email_norm = %s)",
+                (normalizar_email(email),))
+            con.commit()
+        return True
+    except Exception as e:
+        print("  ! db.borrar_plan:", e)
+        return False
+
+
+def borrar_cuenta(email):
+    """Borra la cuenta y con ella el plan y los eventos (ON DELETE CASCADE).
+    Es el derecho de borrado: no queda rastro de la persona."""
+    if not disponible():
+        return False
+    try:
+        with _conectar() as con, con.cursor() as cur:
+            cur.execute("DELETE FROM usuarios WHERE email_norm = %s",
+                        (normalizar_email(email),))
+            con.commit()
+        return True
+    except Exception as e:
+        print("  ! db.borrar_cuenta:", e)
+        return False
 
 
 def contar_usuarios():
