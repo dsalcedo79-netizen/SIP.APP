@@ -323,7 +323,9 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/healthz":
             self._send(200, {"ok": True, "provider": CONFIG.get("PROVIDER"),
-                             "db": db.disponible(), "registro": db.disponible()})
+                             "db": db.disponible(), "registro": db.disponible(),
+                             "db_diagnostico": db.diagnostico(),
+                             "db_otras_variables": db.variables_parecidas()})
             return
         if path == "/api/admin/actividad":
             s = self._session()

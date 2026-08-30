@@ -114,6 +114,44 @@ def motivo():
     return _ESTADO["motivo"]
 
 
+def diagnostico():
+    """Categoria del problema, apta para exponer publicamente.
+    Nunca incluye el host, la clave ni el texto crudo del error."""
+    if _ESTADO["listo"]:
+        return "ok"
+    if not DATABASE_URL:
+        return "falta DATABASE_URL"
+    if not _DRIVER:
+        return "falta el driver psycopg"
+    m = _ESTADO["motivo"].lower()
+    if "password" in m or "authentication" in m or "role" in m:
+        return "DATABASE_URL con usuario o clave incorrectos"
+    if "does not exist" in m or "database" in m:
+        return "la base indicada en DATABASE_URL no existe"
+    if "timeout" in m or "timed out" in m:
+        return "la base no respondio a tiempo"
+    if "could not translate" in m or "name or service" in m or "resolve" in m:
+        return "el host de DATABASE_URL no resuelve"
+    if "ssl" in m:
+        return "problema de SSL (falta ?sslmode=require)"
+    return "no se pudo conectar"
+
+
+def variables_parecidas():
+    """Nombres de variables de entorno que parecen una cadena de Postgres.
+    Solo los NOMBRES, nunca los valores: ayuda a detectar que la variable
+    quedo con otro nombre (POSTGRES_URL, DB_URL...)."""
+    nombres = []
+    for k, v in os.environ.items():
+        if k == "DATABASE_URL":
+            continue
+        if "postgres" in str(v).lower()[:20] or k.upper() in (
+                "POSTGRES_URL", "POSTGRESQL_URL", "DB_URL", "DATABASE_URI",
+                "POSTGRES_CONNECTION_STRING", "INTERNAL_DATABASE_URL"):
+            nombres.append(k)
+    return sorted(nombres)[:8]
+
+
 def normalizar_email(email):
     return str(email or "").strip().lower()
 
