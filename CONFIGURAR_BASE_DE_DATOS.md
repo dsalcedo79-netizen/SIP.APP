@@ -51,10 +51,23 @@ Abre en el navegador:
 https://sip-app-1.onrender.com/healthz
 ```
 
-- `{"ok": true, ..., "db": true, "registro": true}` → **listo**, el registro está activo.
-- `{"ok": true, ..., "db": false, "registro": false}` → todavía no conecta. Revisa
-  los logs del servicio en Render: la línea `Base de datos: NO conectada (...)`
-  dice exactamente por qué.
+Si `"db": true`, el registro está activo.
+
+Si `"db": false`, el campo **`db_diagnostico`** dice por qué:
+
+| `db_diagnostico` | Qué pasó | Qué hacer |
+|---|---|---|
+| `falta DATABASE_URL` | La variable no existe en el servicio | Añadirla en Environment. **Crear una base en Render no la crea sola**: hay que agregarla a mano. |
+| `DATABASE_URL con usuario o clave incorrectos` | La cadena está mal copiada | Copiarla de nuevo, completa, desde Neon |
+| `el host de DATABASE_URL no resuelve` | El servidor del enlace no existe | Revisar que no falten caracteres al pegar |
+| `problema de SSL (falta ?sslmode=require)` | Falta el sufijo | Agregar `?sslmode=require` al final |
+| `la base no respondio a tiempo` | Base dormida o red lenta | Recargar; Neon despierta sola en unos segundos |
+| `falta el driver psycopg` | No se instaló la dependencia | Revisar el log de build en Render |
+
+El campo `db_otras_variables` lista los **nombres** (nunca los valores) de otras
+variables que parezcan cadenas de Postgres. Si ahí aparece algo como
+`POSTGRES_URL`, la variable quedó con el nombre equivocado: debe llamarse
+exactamente `DATABASE_URL`.
 
 Después, crea una cuenta de prueba desde la pantalla del Coach IA y confirma que
 aparece en el panel **Actividad**.
