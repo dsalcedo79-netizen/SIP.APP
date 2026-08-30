@@ -23,12 +23,12 @@ GRUPOS_AREA = [
     ("espiritual",   "Espiritual",      "Conectar con tu yo interior y tu entorno"),
     ("emocional",    "Emocional",       "Sentirte bien la mayor parte del tiempo"),
     ("mental",       "Mental",          "Aumentar el conocimiento y dominar la mente a tu favor"),
-    ("salud",        "Salud y Cuerpo",  "Tener un estilo de vida saludable"),
+    ("salud",        "Salud",           "Tener un estilo de vida saludable"),
     ("personalidad", "Personalidad",    "Fuerza de caracter y valores constructivos"),
     ("familiar",     "Familiar",        "Tener una buena relacion familiar y de pareja"),
     ("social",       "Social",          "Tener buenas amistades"),
     ("ocupacional",  "Ocupacional",     "Desarrollar habilidades que te hagan mejor profesional"),
-    ("economico",    "Economico",       "Tener multiples fuentes de ingreso"),
+    ("economico",    "Económico",       "Tener multiples fuentes de ingreso"),
     ("calidad_vida", "Calidad de Vida", "Tener grandes experiencias de vida"),
 ]
 

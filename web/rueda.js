@@ -10,27 +10,41 @@ var RV = { size: 360, c: 180, R: 148 };
 
 function rvDims(){
   return (typeof DIMS !== "undefined") ? DIMS
-    : ["Espiritual","Emocional","Mental","Cuerpo","Personalidad","Familiar","Social","Profesional","Financiero","Calidad de Vida"];
+    : ["Espiritual","Emocional","Mental","Salud","Personalidad","Familiar","Social","Ocupacional","Económico","Calidad de Vida"];
 }
-function rvEtiqueta(d){ return d === "Calidad de Vida" ? "Calidad Vida" : d; }
+function rvEtiqueta(d){
+  // Etiquetas cortas: las largas se salen del viewBox en los extremos.
+  if (d === "Calidad de Vida") return "Calidad Vida";
+  if (d === "Ocupacional") return "Ocupac.";
+  return d;
+}
 
 var RV_PREGUNTAS = {
   "Espiritual": "¿Cómo te gustaría que puedas estar a nivel espiritual?",
   "Emocional": "¿Cómo te gustaría sentir la mayor parte del tiempo?",
   "Mental": "¿Qué tipo de conocimientos y pensamientos te gustaría tener?",
-  "Cuerpo": "¿Cómo te gustaría que fuera tu salud y tu cuerpo físico?",
+  "Salud": "¿Cómo te gustaría que fuera tu salud y tu cuerpo físico?",
   "Personalidad": "¿Qué tipo de características de personalidad te gustaría tener?",
   "Familiar": "¿Cómo te gustaría que fuera la relación familiar y de pareja?",
   "Social": "¿Qué características deseas en tus amistades y qué tipo de amigos se gustan tener?",
-  "Profesional": "¿Qué tipo de características y habilidades te gustaría desarrollar?",
-  "Financiero": "¿Cuáles te gustaría ganar y cómo te gustaría iniciarlo?",
+  "Ocupacional": "¿Qué tipo de características y habilidades te gustaría desarrollar?",
+  "Económico": "¿Cuánto te gustaría ganar y cómo te gustaría utilizarlo?",
   "Calidad de Vida": "¿Dónde te gustaría vivir, viajar o qué te gustaría comprar?"
 };
+
+// La rueda tiene su propio almacen, asi que tambien hay que renombrar ahi.
+function rvRenombrar(v){
+  if(!v) return v;
+  var mapa = {"Cuerpo":"Salud", "Profesional":"Ocupacional", "Financiero":"Económico"};
+  var n = {};
+  Object.keys(v).forEach(function(k){ n[mapa[k] || k] = v[k]; });
+  return n;
+}
 
 function rvCargar(){
   try{
     var j = JSON.parse(localStorage.getItem("sip_rueda_vida_v1") || "null");
-    if (j && j.valores) return j.valores;
+    if (j && j.valores) return rvRenombrar(j.valores);
   }catch(e){}
   // si no hay rueda guardada, parte del último diagnóstico existente (integración no destructiva)
   if (typeof state !== "undefined" && state.diagnosticos && state.diagnosticos.length){

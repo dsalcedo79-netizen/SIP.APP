@@ -16,6 +16,7 @@ de nuevas cuentas se deshabilita con un aviso claro. Nunca revienta el arranque.
 
 import os
 import re
+import secrets
 import threading
 
 _LOCK = threading.Lock()
@@ -549,6 +550,30 @@ def cohortes():
     except Exception as e:
         print("  ! db.cohortes:", e)
         return []
+
+
+def secreto_de_sesion():
+    """Clave con la que se firman las sesiones.
+
+    Vive en la base y se genera una sola vez. Ese es todo el punto: si fuera
+    aleatoria por arranque, cada despliegue invalidaria las sesiones de todo
+    el mundo, que es justo lo que se quiere evitar.
+    """
+    if not disponible():
+        return None
+    try:
+        with _conectar() as con, con.cursor() as cur:
+            cur.execute("CREATE TABLE IF NOT EXISTS ajustes ("
+                        "clave TEXT PRIMARY KEY, valor TEXT NOT NULL)")
+            cur.execute("INSERT INTO ajustes (clave, valor) VALUES ('session_secret', %s) "
+                        "ON CONFLICT (clave) DO NOTHING", (secrets.token_hex(32),))
+            cur.execute("SELECT valor FROM ajustes WHERE clave = 'session_secret'")
+            fila = cur.fetchone()
+            con.commit()
+        return fila["valor"] if fila else None
+    except Exception as e:
+        print("  ! db.secreto_de_sesion:", e)
+        return None
 
 
 def contar_usuarios():

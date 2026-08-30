@@ -5,6 +5,7 @@ Motor de SIP.MDV (código probado). Sirve la app SIP (web/) y el
 Coach IA (agents/coach-ia-maestria.md) con PROVIDER: gemini | anthropic | groq.
 """
 
+import base64
 import hashlib
 import hmac
 import json
@@ -39,6 +40,18 @@ ANTHROPIC_ALIAS = {
 }
 PBKDF2_ITERS = 200000
 
+# ---- Sesiones firmadas ----
+# Antes las sesiones vivian en un diccionario en memoria, asi que cada
+# despliegue o reinicio cerraba la sesion de todo el mundo a la vez. Ahora el
+# token lleva sus propios datos y una firma: el servidor lo valida sin
+# recordar nada, y sobrevive a los reinicios.
+SESSION_TTL = 60 * 60 * 24 * 30   # 30 dias
+
+# Revocaciones explicitas (cerrar sesion, borrar cuenta). Vive en memoria y se
+# pierde al reiniciar; para entonces el token ya se puede validar contra la
+# cuenta, que es lo que de verdad importa: si la cuenta no existe, no se entra.
+REVOCADOS = set()
+
 # ---- Limite de intentos ----
 # Cada PBKDF2 cuesta ~100 ms de CPU, asi que sin tope un atacante puede tanto
 # adivinar claves como tumbar el servidor. Ventana deslizante en memoria.
@@ -65,10 +78,6 @@ def anotar_intento(clave, accion):
 
 def limpiar_intentos(clave, accion):
     INTENTOS.pop(accion + ":" + str(clave).lower(), None)
-SESSIONS = {}
-SESSION_TTL = 60 * 60 * 12
-
-
 def load_config():
     cfg = {"API_KEY": "", "PASSWORD": "sigei", "MODEL": "", "PORT": "8000",
            "PROVIDER": "gemini", "GEMINI_API_KEY": "", "ANTHROPIC_API_KEY": "",
@@ -90,6 +99,26 @@ def load_config():
 
 
 CONFIG = load_config()
+
+
+def _secreto_sesion():
+    """De donde sale la clave de firma, en orden de preferencia:
+       1. SESSION_SECRET, si el operador la define.
+       2. La guardada en la base: estable entre reinicios, sin configurar nada.
+       3. Una aleatoria del proceso, si no hay base. Ahi si se pierde al
+          reiniciar, pero es el mismo comportamiento que habia antes.
+    """
+    puesta = (CONFIG.get("SESSION_SECRET") or "").strip()
+    if puesta:
+        return puesta.encode("utf-8")
+    guardada = db.secreto_de_sesion()
+    if guardada:
+        return guardada.encode("utf-8")
+    print("  ! sin base de datos: las sesiones no sobreviviran al reinicio")
+    return secrets.token_bytes(32)
+
+
+SECRETO_SESION = None   # se resuelve al arrancar, cuando la base ya respondio
 
 
 def provider_key():
@@ -266,29 +295,44 @@ def _call_anthropic(system_prompt, messages, model, key):
     return "\n".join(parts).strip(), None
 
 
+def _b64(b):
+    return base64.urlsafe_b64encode(b).rstrip(b"=")
+
+
+def _des64(b):
+    return base64.urlsafe_b64decode(b + b"=" * (-len(b) % 4))
+
+
 def new_session(user):
-    tok = "tok-" + secrets.token_urlsafe(24)
-    SESSIONS[tok] = {"ts": time.time(), "usuario": user.get("usuario"),
-                     "nombre": user.get("nombre", user.get("usuario")),
-                     "rol": user.get("rol"),
-                     "etiqueta": user.get("cargo") or role_label(user.get("rol")),
-                     "tipo": user.get("tipo", "editor"),
-                     "menus": user.get("menus", "*")}
-    cutoff = time.time() - SESSION_TTL
-    for t in list(SESSIONS):
-        if SESSIONS[t]["ts"] < cutoff:
-            del SESSIONS[t]
-    return tok
+    datos = {"usuario": user.get("usuario"),
+             "nombre": user.get("nombre", user.get("usuario")),
+             "rol": user.get("rol"),
+             "etiqueta": user.get("cargo") or role_label(user.get("rol")),
+             "tipo": user.get("tipo", "editor"),
+             "menus": user.get("menus", "*"),
+             "exp": int(time.time()) + SESSION_TTL}
+    cuerpo = _b64(json.dumps(datos, separators=(",", ":"),
+                             ensure_ascii=False).encode("utf-8"))
+    firma = _b64(hmac.new(SECRETO_SESION, cuerpo, hashlib.sha256).digest())
+    return (cuerpo + b"." + firma).decode("ascii")
 
 
 def get_session(tok):
-    s = SESSIONS.get(tok)
-    if not s:
+    """Valida el token por su firma. No consulta ningun almacen: por eso
+    sobrevive a los reinicios."""
+    if not tok or tok in REVOCADOS:
         return None
-    if s["ts"] < time.time() - SESSION_TTL:
-        del SESSIONS[tok]
+    try:
+        cuerpo, firma = tok.encode("ascii").split(b".", 1)
+        esperada = hmac.new(SECRETO_SESION, cuerpo, hashlib.sha256).digest()
+        if not hmac.compare_digest(_des64(firma), esperada):
+            return None
+        datos = json.loads(_des64(cuerpo).decode("utf-8"))
+    except Exception:
         return None
-    return s
+    if int(datos.get("exp", 0)) < time.time():
+        return None
+    return datos
 
 
 def save_users():
@@ -481,7 +525,7 @@ class Handler(BaseHTTPRequestHandler):
                     db.marcar_login(usuario)
                     db.registrar_evento(usuario, "login")
                 tok = new_session(u)
-                s = SESSIONS[tok]
+                s = get_session(tok)
                 self._send(200, {"ok": True, "token": tok, "nombre": s["nombre"],
                                  "rol": s["rol"], "etiqueta": s["etiqueta"],
                                  "tipo": s["tipo"], "menus": s["menus"]})
@@ -525,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
             db.marcar_login(email)
             db.registrar_evento(email, "login")
             tok = new_session({"usuario": email, "nombre": nombre, "rol": "usuario"})
-            ses = SESSIONS[tok]
+            ses = get_session(tok)
             self._send(200, {"ok": True, "token": tok, "nombre": ses["nombre"],
                              "rol": ses["rol"], "etiqueta": ses["etiqueta"],
                              "tipo": ses["tipo"], "menus": ses["menus"]})
@@ -575,7 +619,9 @@ class Handler(BaseHTTPRequestHandler):
             # Derecho de borrado: se va la cuenta, el plan y los eventos.
             ok = db.borrar_cuenta(s.get("usuario", ""))
             if ok:
-                SESSIONS.pop(self.headers.get("X-Session", ""), None)
+                # El token sigue firmado hasta caducar; se revoca en este
+                # proceso y, sobre todo, la cuenta ya no existe.
+                REVOCADOS.add(self.headers.get("X-Session", ""))
             self._send(200, {"ok": ok})
             return
 
@@ -697,7 +743,9 @@ def main():
     print("=" * 60)
     print(" Proveedor IA: %s | Modelo: %s" % (p, CONFIG.get("MODEL") or DEFAULT_MODELS.get(p)))
     print(" Agentes: %d | Usuarios locales: %d" % (len(dirs), len(USERS.get("usuarios", []))))
+    global SECRETO_SESION
     listo, porque = db.inicializar()
+    SECRETO_SESION = _secreto_sesion()
     if listo:
         print(" Base de datos: conectada | Cuentas registradas: %d" % db.contar_usuarios())
         print(" Comunidad: %s" % ("lista" if social.inicializar() else "NO disponible"))

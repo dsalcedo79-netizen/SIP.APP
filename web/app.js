@@ -9,40 +9,58 @@
 
 // ---------- Metodología ----------
 const GRUPOS = [
-  ["Del Ser", ["Espiritual","Emocional","Mental","Cuerpo","Personalidad"]],
-  ["Del Hacer", ["Familiar","Social","Profesional"]],
-  ["Del Tener", ["Financiero","Calidad de Vida"]]
+  ["Del Ser", ["Espiritual","Emocional","Mental","Salud","Personalidad"]],
+  ["Del Hacer", ["Familiar","Social","Ocupacional"]],
+  ["Del Tener", ["Económico","Calidad de Vida"]]
 ];
 const DIMS = GRUPOS.flatMap(g=>g[1]);
 const OBJETIVOS = {
   "Espiritual":"Conectar con tu yo interior y tu entorno",
   "Emocional":"Sentirte bien la mayor parte del tiempo",
   "Mental":"Aumentar el conocimiento y dominar la mente a tu favor",
-  "Cuerpo":"Tener un estilo de vida saludable, un cuerpo sano y en forma",
+  "Salud":"Tener un estilo de vida saludable, un cuerpo sano y en forma",
   "Personalidad":"Fuerza de carácter y valores constructivos",
   "Familiar":"Tener una buena relación familiar y de pareja",
   "Social":"Tener buenas amistades",
-  "Profesional":"Desarrollar habilidades que te hagan mejor profesional",
-  "Financiero":"Tener múltiples fuentes de ingreso",
+  "Ocupacional":"Desarrollar habilidades que te hagan mejor profesional",
+  "Económico":"Tener múltiples fuentes de ingreso",
   "Calidad de Vida":"Tener grandes experiencias de vida"
 };
 // ---- Catalogo unico de las 10 areas de vida ----
-// `id` es la clave de almacenamiento y no cambia nunca. `rueda` es el nombre que usa
-// la Rueda de la Vida; `workbook` el del cuaderno impreso "Plan Anual de Vida".
-// Antes cada taller guardaba con el nombre que mostraba, y los datos no se podian cruzar.
+// `id` es la clave de almacenamiento y no cambia nunca. `nombre` es el del
+// cuaderno "Plan Anual de Vida": la app y el material impreso dicen lo mismo.
 const AREAS = [
-  {id:"espiritual",   rueda:"Espiritual",      workbook:"Espiritual"},
-  {id:"emocional",    rueda:"Emocional",       workbook:"Emocional"},
-  {id:"mental",       rueda:"Mental",          workbook:"Mental"},
-  {id:"salud",        rueda:"Cuerpo",          workbook:"Salud"},
-  {id:"personalidad", rueda:"Personalidad",    workbook:"Personalidad"},
-  {id:"familiar",     rueda:"Familiar",        workbook:"Familiar"},
-  {id:"social",       rueda:"Social",          workbook:"Social"},
-  {id:"ocupacional",  rueda:"Profesional",     workbook:"Ocupacional"},
-  {id:"economico",    rueda:"Financiero",      workbook:"Economico"},
-  {id:"calidad_vida", rueda:"Calidad de Vida", workbook:"Calidad de Vida"}
+  {id:"espiritual",   nombre:"Espiritual"},
+  {id:"emocional",    nombre:"Emocional"},
+  {id:"mental",       nombre:"Mental"},
+  {id:"salud",        nombre:"Salud"},
+  {id:"personalidad", nombre:"Personalidad"},
+  {id:"familiar",     nombre:"Familiar"},
+  {id:"social",       nombre:"Social"},
+  {id:"ocupacional",  nombre:"Ocupacional"},
+  {id:"economico",    nombre:"Económico"},
+  {id:"calidad_vida", nombre:"Calidad de Vida"}
 ];
-const AREA_POR_RUEDA = Object.fromEntries(AREAS.map(a=>[a.rueda,a]));
+const AREA_POR_NOMBRE = Object.fromEntries(AREAS.map(a=>[a.nombre,a]));
+
+// Las areas se llamaban distinto en la rueda y en el cuaderno. Al unificarlas
+// hay que renombrar lo que la gente ya escribio, o sus datos quedan huerfanos.
+const RENOMBRES_AREA = {"Cuerpo":"Salud", "Profesional":"Ocupacional",
+                        "Financiero":"Económico"};
+function migrarNombresArea(p){
+  const ren = k => RENOMBRES_AREA[k] || k;
+  const renClaves = o => {
+    if(!o || typeof o !== "object") return o;
+    const n = {}; Object.keys(o).forEach(k => { n[ren(k)] = o[k]; }); return n;
+  };
+  (p.diagnosticos||[]).forEach(d => { if(d && d.valores) d.valores = renClaves(d.valores); });
+  if(p.planAnual) p.planAnual.areas = renClaves(p.planAnual.areas);
+  (p.metas||[]).forEach(m => { if(m) m.area = ren(m.area); });
+  (p.habitos||[]).forEach(h => { if(h) h.area = ren(h.area); });
+  if(p.ciclo && p.ciclo.metas90) p.ciclo.metas90.forEach(m => { if(m) m.area = ren(m.area); });
+  (p.ciclos||[]).forEach(c => (c && c.metas90 || []).forEach(m => { if(m) m.area = ren(m.area); }));
+  return p;
+}
 
 const MED_MAPA = ["Espiritualidad · Conexión con Dios","Salud Mental, Emocional y Física","Carácter","Relaciones · Familia","Finanzas · Abundancia","Vocación · Vida Profesional","Visión · Propósito de Vida"];
 const MOODS = [["enojado","😠"],["cansado","😴"],["triste","😢"],["feliz","😊"],["emocionado","🤩"]];
@@ -157,7 +175,7 @@ function normalizarPlan(p){
   MAPAS_PLAN.forEach(k   => { if(!out[k] || typeof out[k] !== "object") out[k] = {}; });
   if(!out.planAnual.areas || typeof out.planAnual.areas !== "object") out.planAnual.areas = {};
   if(typeof out.declaracion !== "string") out.declaracion = "";
-  return out;
+  return migrarNombresArea(out);
 }
 
 let state = normalizarPlan(JSON.parse(localStorage.getItem("sip_v3") || "null"));
@@ -474,7 +492,7 @@ function bloqueArea(ref, titulo, pregunta, store, placeholder){
   const llenas = AREAS.filter(a => (datos[a.id]||"").trim()).length;
   return `<details class="area"><summary><span>${ref} · ${titulo}<br><span class="objetivo">${pregunta}</span></span><span class="tag ${llenas===10?"":"dorado"}">${llenas}/10</span></summary>
     <div class="cuerpo">
-      ${AREAS.map(a=>`<label class="campo">${a.workbook}${a.workbook!==a.rueda?` <span style="color:var(--gris);font-weight:400;font-size:.9em;">· ${a.rueda} en la rueda</span>`:""}</label><textarea onblur="campoArea('${store}','${a.id}',this.value)" style="min-height:60px;" placeholder="${placeholder}">${esc(datos[a.id])}</textarea>`).join("")}
+      ${AREAS.map(a=>`<label class="campo">${a.nombre}</label><textarea onblur="campoArea('${store}','${a.id}',this.value)" style="min-height:60px;" placeholder="${placeholder}">${esc(datos[a.id])}</textarea>`).join("")}
     </div></details>`;
 }
 function campoArea(store,id,v){ (state[store]=state[store]||{})[id]=v; save(); pintarViaje(); }
