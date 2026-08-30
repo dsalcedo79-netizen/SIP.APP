@@ -271,6 +271,8 @@ function vEstado(){
     <h2>Tu Estado Actual</h2>
     <p class="sub">No te estamos evaluando: te estamos ayudando a descubrirte. Completa los 4 talleres.</p></div>
 
+  ${typeof vRuedaHTML==="function" ? vRuedaHTML() : ""}
+
   <details class="area" ${!d?"open":""}><summary><span>Taller 1 · La Rueda de la Vida<br><span class="objetivo">Califícate de 1 a 10 en cada área</span></span><span class="tag ${d?"":"dorado"}">${d?"✓ Completado":"Pendiente"}</span></summary>
     <div class="cuerpo">${filas}
       <br><div class="centro" id="radarBox">${radar(diagTmp)}</div>
