@@ -435,6 +435,122 @@ def borrar_cuenta(email):
         return False
 
 
+# ---- Cohortes de vuelo ----
+# Una cohorte son las personas que iniciaron sus 90 dias la misma semana.
+# No hace falta tabla nueva: la fecha de despegue ya vive dentro del plan
+# (datos->viaje->inicio), y Postgres sabe consultar dentro de un JSONB.
+# El filtro por expresion regular descarta fechas vacias o mal formadas,
+# que reventarian el cast a date.
+_SQL_INICIOS = """
+WITH inicios AS (
+    SELECT u.id,
+           u.email_norm,
+           (p.datos->'viaje'->>'inicio')::date AS inicio,
+           COALESCE((p.datos->'reto'->>'racha')::int, 0)  AS racha,
+           COALESCE((p.datos->'reto'->>'record')::int, 0) AS record,
+           CASE WHEN p.datos->'reto'->>'ultimoDia' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+                THEN (p.datos->'reto'->>'ultimoDia')::date END AS ultimo_dia
+      FROM planes p
+      JOIN usuarios u ON u.id = p.usuario_id
+     WHERE p.datos->'viaje'->>'inicio' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+),
+vuelos AS (
+    -- El margen de un dia absorbe la diferencia horaria: el servidor corre en
+    -- UTC y la persona cierra su dia en su propia zona.
+    SELECT id, email_norm, inicio, racha, record,
+           date_trunc('week', inicio)::date AS semana,
+           LEAST(90, GREATEST(1, (CURRENT_DATE - inicio) + 1)) AS dia,
+           (ultimo_dia IS NOT NULL AND ultimo_dia >= CURRENT_DATE - 1) AS al_dia
+      FROM inicios
+)
+"""
+
+
+def _etapa(dia):
+    for a, b, nombre in ((1, 15, "Preparacion"), (16, 30, "Despegue"),
+                         (31, 45, "Ascenso"), (46, 60, "Vuelo crucero"),
+                         (61, 75, "Aproximacion"), (76, 90, "Aterrizaje")):
+        if a <= dia <= b:
+            return nombre
+    return "Aterrizaje"
+
+
+def cohorte_de(email):
+    """Resumen ANONIMO de la cohorte de esta persona.
+
+    Nunca devuelve nombres ni correos de los demas: solo cuantos son, en que
+    dia van y cuantos siguen activos. Compartir identidades exigiria un
+    consentimiento aparte.
+    """
+    if not disponible():
+        return None
+    try:
+        with _conectar() as con, con.cursor() as cur:
+            cur.execute(_SQL_INICIOS + """
+                SELECT v.dia, v.semana, v.racha, v.record, v.al_dia,
+                       (v.email_norm = %s) AS soy_yo,
+                       EXISTS (SELECT 1 FROM eventos e
+                                WHERE e.usuario_id = v.id
+                                  AND e.creado_en > now() - interval '3 days') AS activo
+                  FROM vuelos v
+                 WHERE v.semana = (SELECT semana FROM vuelos WHERE email_norm = %s)
+            """, (normalizar_email(email), normalizar_email(email)))
+            filas = cur.fetchall()
+        if not filas:
+            return None
+        yo = next((f for f in filas if f["soy_yo"]), None)
+        etapas = {}
+        for f in filas:
+            etapas[_etapa(f["dia"])] = etapas.get(_etapa(f["dia"]), 0) + 1
+        rachas = [f["racha"] for f in filas]
+        return {
+            "semana": filas[0]["semana"].isoformat(),
+            "personas": len(filas),
+            "mi_dia": yo["dia"] if yo else None,
+            "mi_racha": yo["racha"] if yo else 0,
+            "mi_record": yo["record"] if yo else 0,
+            "activos_3d": sum(1 for f in filas if f["activo"]),
+            "al_dia": sum(1 for f in filas if f["al_dia"]),
+            "racha_mayor": max(rachas) if rachas else 0,
+            "racha_promedio": round(sum(rachas) / len(rachas)) if rachas else 0,
+            "etapas": etapas,
+            "dia_promedio": round(sum(f["dia"] for f in filas) / len(filas)),
+        }
+    except Exception as e:
+        print("  ! db.cohorte_de:", e)
+        return None
+
+
+def cohortes():
+    """Todas las cohortes, para el panel interno. Aqui si hay nombres:
+    lo ve solo un administrador del programa."""
+    if not disponible():
+        return []
+    try:
+        with _conectar() as con, con.cursor() as cur:
+            cur.execute(_SQL_INICIOS + """
+                SELECT v.semana,
+                       count(*)                          AS personas,
+                       round(avg(v.dia))                 AS dia_promedio,
+                       count(*) FILTER (WHERE EXISTS (
+                           SELECT 1 FROM eventos e
+                            WHERE e.usuario_id = v.id
+                              AND e.creado_en > now() - interval '7 days')) AS activos_7d,
+                       count(*) FILTER (WHERE v.al_dia)  AS al_dia,
+                       max(v.racha)                      AS racha_mayor,
+                       round(avg(v.racha))               AS racha_promedio,
+                       min(v.inicio)                     AS desde
+                  FROM vuelos v
+                 GROUP BY v.semana
+                 ORDER BY v.semana DESC
+                 LIMIT 40
+            """)
+            return cur.fetchall()
+    except Exception as e:
+        print("  ! db.cohortes:", e)
+        return []
+
+
 def contar_usuarios():
     if not disponible():
         return 0

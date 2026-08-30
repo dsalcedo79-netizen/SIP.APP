@@ -342,6 +342,17 @@ class Handler(BaseHTTPRequestHandler):
                                  sep=" ", timespec="minutes")})
             return
 
+        if path == "/api/cohorte":
+            s = self._session()
+            if not s:
+                self._send(401, {"error": "No autorizado"})
+                return
+            # Resumen anonimo: cuantos son, en que dia van y como va la racha
+            # del grupo. Nunca nombres ni correos de los demas.
+            c = db.cohorte_de(s.get("usuario", ""))
+            self._send(200, {"ok": True, "cohorte": c})
+            return
+
         if path == "/api/admin/actividad":
             s = self._session()
             if not can_admin(s):
@@ -362,8 +373,15 @@ class Handler(BaseHTTPRequestHandler):
             recientes = [{"cuando": fecha(r["creado_en"]), "quien": r["nombre"],
                           "email": r["email"], "evento": r["evento"]}
                          for r in db.eventos_recientes(120)]
+            cohortes = [{"semana": c["semana"].isoformat(), "personas": c["personas"],
+                         "dia_promedio": int(c["dia_promedio"] or 0),
+                         "activos_7d": c["activos_7d"], "al_dia": c["al_dia"],
+                         "racha_mayor": int(c["racha_mayor"] or 0),
+                         "racha_promedio": int(c["racha_promedio"] or 0)}
+                        for c in db.cohortes()]
             self._send(200, {"ok": True, "metricas": db.metricas(),
                              "personas": personas, "recientes": recientes,
+                             "cohortes": cohortes,
                              "whatsapp": [{"nombre": w["nombre"], "numero": w["whatsapp"]}
                                           for w in db.lista_whatsapp()]})
             return

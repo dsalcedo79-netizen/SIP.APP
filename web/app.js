@@ -245,6 +245,7 @@ async function sincronizarAlEntrar(){
     conflicto = j;                                // dos versiones: decide la persona
   }catch(e){ /* sin conexion: se sigue con la copia local */ }
   render();
+  cargarCohorte();
 }
 
 function resolverConflicto(cual){
@@ -268,6 +269,7 @@ function evento(nombre, unaVez){
 }
 // Los hitos de fase se detectan solos en cada render.
 function revisarHitos(){
+  actualizarReto();
   if(fase1Done()) evento("fase1", true);
   if(fase2Done()) evento("fase2", true);
 }
@@ -294,6 +296,31 @@ function racha(){
   return n;
 }
 function diaMed(){ return Math.min(state.sesiones.length+1, 21); }
+
+// ---------- Reto diario ----------
+// Un dia cuenta cuando la persona lo CIERRA, es decir cuando lo evalua con
+// estrellas. Abrir la app no basta: el reto es el acto deliberado de decir
+// "hoy si estuve". El dia de hoy no rompe la racha mientras siga abierto.
+function rachaReto(){
+  let n = 0, d = new Date();
+  const cerrado = f => ((state.dias[f]||{}).eval || 0) > 0;
+  if(!cerrado(hoy())) d.setDate(d.getDate()-1);
+  while(cerrado(d.toLocaleDateString("sv-SE"))){ n++; d.setDate(d.getDate()-1); }
+  return n;
+}
+function cerroHoy(){ return ((state.dias[hoy()]||{}).eval || 0) > 0; }
+
+// La racha se guarda en el plan para que el servidor pueda sumar la del grupo
+// sin tener que recorrer el diario de cada persona.
+function actualizarReto(){
+  state.reto = state.reto || {racha:0, record:0, ultimoDia:""};
+  const r = rachaReto();
+  const antes = JSON.stringify(state.reto);
+  state.reto.racha = r;
+  if(r > (state.reto.record||0)) state.reto.record = r;
+  if(cerroHoy()) state.reto.ultimoDia = hoy();
+  if(JSON.stringify(state.reto) !== antes) save();
+}
 function fodaOk(){ const f=state.foda; return f.f.trim()&&f.o.trim()&&f.d.trim()&&f.a.trim(); }
 function ikigaiOk(){ const k=state.ikigai; return k.amas.trim()&&k.bueno.trim()&&k.mundo.trim()&&k.valor.trim(); }
 function fase1Done(){ return !!ultimoDiag() && !!state.temperamento.resultado && !!fodaOk() && !!ikigaiOk(); }
@@ -398,6 +425,8 @@ function vInicio(){
       <div class="kpi"><div class="num">${ht?hh+"/"+ht:"–"}</div><div class="lbl">Hábitos hoy</div></div>
       <div class="kpi"><div class="num">${racha()} 🔥</div><div class="lbl">Racha</div></div>
     </div>
+    ${cicloActivo() ? tarjetaReto() : ""}
+    ${tarjetaCohorte()}
     <div class="card centro">
       ${!fase1Done()?`<p class="sub">Tu siguiente paso: <b>Fase 1 · Tu Estado Actual</b></p><button class="btn" onclick="ir('estado')">¿Dónde estás hoy?</button>`
       : !fase2Done()?`<p class="sub">Tu siguiente paso: <b>Fase 2 · Tu Plan de Vida</b></p><button class="btn" onclick="ir('plan')">¿Hacia dónde quieres ir?</button>`
@@ -700,6 +729,8 @@ function vDia(){
     <label class="campo">Lo que aprendí hoy</label><textarea onblur="dCampo('aprendi',this.value)">${esc(e.aprendi)}</textarea>
     <label class="campo">Qué puedo mejorar mañana</label><textarea onblur="dCampo('mejora',this.value)">${esc(e.mejora)}</textarea></div>
 
+  ${tarjetaReto()}
+
   <div class="card centro"><h2>⭐ Evaluación de mi día</h2>
     <div class="estrellas">${[1,2,3,4,5].map(n=>`<button class="${e.eval>=n?"on":""}" onclick="dEval(${n})">⭐</button>`).join("")}</div>
     ${e.eval?`<p class="sub">Día evaluado: ${e.eval}/5. ${e.eval>=4?"¡Así se construye una vida con maestría!":"Mañana es una nueva oportunidad."}</p>`:'<p class="aviso">Al final del día, califícalo.</p>'}</div>`;
@@ -873,6 +904,62 @@ async function coachRegistro(){
   }catch(e){ err.textContent = "No hay conexión con el servidor."; }
 }
 
+// ---------- COHORTE DE VUELO ----------
+// Las personas que despegaron la misma semana comparten etapa del vuelo.
+// El resumen es ANONIMO: cuantos son y como va el grupo, nunca quienes son.
+// Mostrar identidades exigiria un consentimiento aparte.
+let cohorteCache = null, cohortePedida = false;
+
+async function cargarCohorte(){
+  if(cohortePedida || !state.coach.token) return;
+  cohortePedida = true;
+  try{
+    const r = await fetch("/api/cohorte",{headers:{"X-Session":state.coach.token}});
+    if(r.status === 401) return;
+    const j = await r.json();
+    cohorteCache = j.cohorte || null;
+    if(cohorteCache) render();
+  }catch(e){ /* sin conexion: la tarjeta simplemente no aparece */ }
+}
+
+function tarjetaReto(){
+  const r = state.reto || {racha:0, record:0};
+  const hecho = cerroHoy();
+  const co = cohorteCache;
+  return `<div class="card">
+    <div class="lema">Reto diario</div>
+    <h2>${r.racha} ${r.racha===1?"día":"días"} sin faltar ${r.racha>0?"🔥":""}</h2>
+    <p class="sub">${hecho
+      ? "Hoy ya está cerrado. Mañana sumas uno más."
+      : "Tu día cuenta cuando lo evalúas al final. Aún estás a tiempo."}</p>
+    <div class="grid">
+      <div class="kpi"><div class="num">${r.racha}</div><div class="lbl">Racha actual</div></div>
+      <div class="kpi"><div class="num">${r.record||0}</div><div class="lbl">Tu récord</div></div>
+      ${co ? `<div class="kpi"><div class="num">${co.al_dia}/${co.personas}</div><div class="lbl">De tu cohorte, al día</div></div>` : ""}
+      ${co ? `<div class="kpi"><div class="num">${co.racha_mayor}</div><div class="lbl">Racha más larga del grupo</div></div>` : ""}
+    </div>
+    ${!hecho ? `<div class="centro" style="margin-top:12px;"><button class="btn" onclick="ir('dia')">Cerrar mi día</button></div>` : ""}
+  </div>`;
+}
+
+function tarjetaCohorte(){
+  const co = cohorteCache;
+  if(!co || !co.personas) return "";
+  const solo = co.personas === 1;
+  const etapas = Object.entries(co.etapas||{});
+  return `<div class="card">
+    <div class="lema">Tu cohorte de vuelo</div>
+    <h2>${solo ? "Eres la primera de tu semana ✈️" : `Vuelas con ${co.personas-1} ${co.personas-1===1?"persona":"personas"} ✈️`}</h2>
+    <p class="sub">${solo
+      ? "Cuando alguien más despegue esta semana, volarán juntos y verás aquí cómo avanza el grupo."
+      : `Despegaron la semana del ${esc(co.semana)}. El grupo va en el día ${co.dia_promedio} de 90 en promedio.`}</p>
+    ${!solo && etapas.length ? `<div class="grid">${etapas.map(([e,n])=>
+      `<div class="kpi"><div class="num">${n}</div><div class="lbl">En ${esc(e)}</div></div>`).join("")}</div>` : ""}
+    ${!solo ? `<div class="insight">${co.al_dia} de ${co.personas} mantienen su racha al día. La racha más larga del grupo va en ${co.racha_mayor} ${co.racha_mayor===1?"día":"días"}.</div>` : ""}
+    <p class="aviso">Tu cohorte es anónima: ves cómo avanza el grupo, nunca quiénes lo componen.</p>
+  </div>`;
+}
+
 // ---------- ACCESO (obligatorio desde ahora) ----------
 function vAcceso(){
   const c = state.coach;
@@ -1032,6 +1119,15 @@ function vActividad(){
       ${x.firmo?`<span class="tag dorado">✓ 90 días</span>`:""}
       <span class="aviso" style="min-width:150px;text-align:right;">${x.dias_activos} día${x.dias_activos===1?"":"s"} activo${x.dias_activos===1?"":"s"}<br>último: ${esc(x.ultimo_login||x.registro||"–")}</span>
     </div>`).join("") : `<p class="sub">Todavía no hay nadie registrado.</p>`}</div>
+
+  <div class="card"><h2>✈️ Cohortes de vuelo</h2>
+    <p class="sub">Cada grupo que despegó la misma semana. «Al día» son quienes no han roto su racha.</p>
+    ${(actividadCache.cohortes||[]).length ? (actividadCache.cohortes||[]).map(c=>`<div class="lista-item" style="flex-wrap:wrap;">
+      <span style="flex:1;min-width:150px;"><b>Semana del ${esc(c.semana)}</b><br><span class="aviso">Día ${c.dia_promedio} de 90 en promedio</span></span>
+      <span class="tag">${c.personas} ${c.personas===1?"persona":"personas"}</span>
+      <span class="tag ${c.al_dia===c.personas?"dorado":""}">${c.al_dia} al día</span>
+      <span class="aviso" style="min-width:130px;text-align:right;">${c.activos_7d} activas 7d<br>racha mayor: ${c.racha_mayor}</span>
+    </div>`).join("") : '<p class="sub">Todavía no hay cohortes: aparecen cuando alguien inicia sus 90 días.</p>'}</div>
 
   <div class="card"><h2>Últimos movimientos</h2>
     ${(actividadCache.recientes||[]).slice(0,40).map(r=>`<div class="lista-item">
