@@ -124,7 +124,10 @@ const FASES = [
 ];
 
 // ---------- Estado ----------
-let state = JSON.parse(localStorage.getItem("sip_v3") || "null") || {
+// Forma canonica del plan. Todo lo que se cargue -del navegador, del servidor
+// o de un archivo restaurado- se normaliza contra esta forma: un plan al que
+// le falte un campo haria reventar la app al primer .length o .trim().
+function planVacio(){ return {
   viaje:{inicio:""},
   perfil:{nombre:"",mision:"",vision:""},
   diagnosticos:[], temperamento:{resp:{},resultado:""},
@@ -137,8 +140,26 @@ let state = JSON.parse(localStorage.getItem("sip_v3") || "null") || {
   habitos:[], registros:{}, sesiones:[],
   dias:{},                          // por fecha: {prio:[{t,ok}],rutM:[],rutN:[],mood,gratitud,aprendi,mejora,eval}
   revisiones:{},                    // por semana ISO: {logre,obstaculos,ajustes}
-  coach:{token:"",nombre:"",rol:"",modo:"entrar",msgs:[]}
-};
+  coach:{token:"",nombre:"",rol:"",modo:"entrar",msgs:[]},
+  reto:{racha:0,record:0,ultimoDia:""}
+}; }
+
+const OBJETOS_PLAN = ["viaje","perfil","temperamento","foda","ikigai","planAnual","coach","reto"];
+const LISTAS_PLAN  = ["diagnosticos","afirmaciones","aformaciones","vision","metas","ciclos","habitos","sesiones"];
+const MAPAS_PLAN   = ["porqueArea","analisisArea","motivaArea","registros","dias","revisiones","hitos"];
+
+function normalizarPlan(p){
+  const base = planVacio();
+  const out = Object.assign({}, base, p || {});
+  OBJETOS_PLAN.forEach(k => { out[k] = Object.assign({}, base[k], out[k] || {}); });
+  LISTAS_PLAN.forEach(k  => { if(!Array.isArray(out[k])) out[k] = []; });
+  MAPAS_PLAN.forEach(k   => { if(!out[k] || typeof out[k] !== "object") out[k] = {}; });
+  if(!out.planAnual.areas || typeof out.planAnual.areas !== "object") out.planAnual.areas = {};
+  if(typeof out.declaracion !== "string") out.declaracion = "";
+  return out;
+}
+
+let state = normalizarPlan(JSON.parse(localStorage.getItem("sip_v3") || "null"));
 state.viaje = state.viaje || {inicio: state.perfil && state.perfil.nombre ? hoyF() : ""};
 state.porqueArea   = state.porqueArea   || {};
 state.analisisArea = state.analisisArea || {};
@@ -214,8 +235,7 @@ async function subirPlan(opciones){
 // Reemplaza el estado local por el del servidor, conservando la sesion actual.
 function aplicarPlan(j){
   const token = state.coach.token, nombre = state.coach.nombre, rol = state.coach.rol;
-  state = j.datos;
-  state.coach = state.coach || {};
+  state = normalizarPlan(j.datos);   // puede venir de una version anterior
   state.coach.token = token; state.coach.nombre = nombre; state.coach.rol = rol;
   state.coach.modo = "entrar";
   state._rev = j.revision;
@@ -1044,7 +1064,7 @@ function restaurarPlan(input){
   lector.onload = function(){
     try{
       const datos = JSON.parse(lector.result);
-      if(!datos || typeof datos !== "object" || !datos.perfil) throw new Error("formato");
+      if(!datos || typeof datos !== "object" || Array.isArray(datos)) throw new Error("formato");
       if(!confirm("Esto reemplaza tu plan actual por el del archivo. ¿Continuar?")) return;
       aplicarPlan({datos: datos, revision: state._rev||0});
       subirPlan({forzar:true}); render();
