@@ -21,6 +21,19 @@ var CO_ETIQUETA = { mensaje:"compartió", meta:"se propuso una meta",
                     leccion:"aprendió algo", mejora:"quiere mejorar" };
 var CO_ICONO = { mensaje:"💬", meta:"🎯", leccion:"💡", mejora:"🌱" };
 
+// El servidor guarda en UTC; aqui se muestra en la hora de quien lee, y en
+// lenguaje humano: "hace 5 min" dice mas que un sello de tiempo.
+function coCuando(iso){
+  const t = new Date(String(iso).replace(" ", "T"));
+  if(isNaN(t)) return "";
+  const seg = Math.floor((Date.now() - t.getTime())/1000);
+  if(seg < 60)    return "hace un momento";
+  if(seg < 3600)  return "hace " + Math.floor(seg/60) + " min";
+  if(seg < 86400) return "hace " + Math.floor(seg/3600) + " h";
+  if(seg < 604800){ const d = Math.floor(seg/86400); return "hace " + d + (d===1?" día":" días"); }
+  return t.toLocaleDateString("es-ES", {day:"numeric", month:"short", year:"numeric"});
+}
+
 function coCab(){ return {"Content-Type":"application/json","X-Session":state.coach.token}; }
 
 async function coGet(ruta){
@@ -173,7 +186,7 @@ function coTarjeta(p){
         <b style="cursor:pointer;" onclick="coVerPerfil(${p.usuario_id})">${esc(p.alias)}</b>
         <span class="aviso"> ${CO_ETIQUETA[p.tipo]||""}${p.grupo_nombre?` en ${esc(p.grupo_nombre)}`:""}</span>
       </span>
-      <span class="aviso">${esc(p.creado_en)}</span>
+      <span class="aviso">${esc(coCuando(p.creado_en))}</span>
     </div>
     <p style="white-space:pre-wrap;margin:4px 0 10px;">${CO_ICONO[p.tipo]||""} ${esc(p.texto)}</p>
     <div class="fila" style="gap:8px;flex-wrap:wrap;">
