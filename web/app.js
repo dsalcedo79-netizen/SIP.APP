@@ -443,7 +443,7 @@ function vInicio(){
       <div class="kpi"><div class="num">${promedio(d)??"–"}</div><div class="lbl">Promedio de vida</div></div>
       <div class="kpi"><div class="num">${dc?("Día "+dc):"–"}</div><div class="lbl">De mis 90 días</div></div>
       <div class="kpi"><div class="num">${ht?hh+"/"+ht:"–"}</div><div class="lbl">Hábitos hoy</div></div>
-      <div class="kpi"><div class="num">${racha()} 🔥</div><div class="lbl">Racha</div></div>
+      <div class="kpi"><div class="num">${(state.reto&&state.reto.racha)||0} 🔥</div><div class="lbl">Días sin faltar</div></div>
     </div>
     ${cicloActivo() ? tarjetaReto() : ""}
     ${tarjetaCohorte()}
@@ -740,7 +740,7 @@ function vDia(){
         <button class="btn-mini" onclick="delHabito('${h.id}')">✕</button></div>`).join("");
     }).join("") || '<p class="sub">Crea tu primer hábito:</p>'}
     <br><div class="fila"><input type="text" id="hNom" placeholder="Ej. Leer 20 minutos"><select id="hTipo">${HABITO_TIPOS.map(([t,e])=>`<option value="${t}">${e}</option>`).join("")}</select><select id="hDim">${DIMS.map(x=>`<option>${x}</option>`).join("")}</select><button class="btn-sec" onclick="addHabito()">+</button></div>
-    <p class="aviso">Racha: ${racha()} días 🔥</p></div>
+    <p class="aviso">Racha de hábitos: ${racha()} ${racha()===1?"día":"días"}. <span style="opacity:.75;">Tu reto diario se cuenta al cerrar el día con estrellas.</span></p></div>
 
   <div class="card"><h2>🙏 Gratitud y aprendizajes</h2>
     <label class="campo">¿Cómo te sientes hoy?</label>
