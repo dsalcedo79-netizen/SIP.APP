@@ -424,15 +424,12 @@ function compuertaHTML(){
 
 // ---------- INICIO ----------
 function vInicio(){
+  // El nombre ya viene de la cuenta; esta pantalla solo cubre el caso raro de
+  // un plan sin nombre (por ejemplo, restaurado desde un archivo incompleto).
   if(!state.perfil.nombre){
-    return `<div class="card centro">
-      <div class="lema">Vive · Crece · Contribuye</div>
-      <h2>Bienvenido al Sistema Integral de Propósito</h2>
-      <p class="sub">Un viaje guiado por cinco preguntas para transformar tu vida.</p>
-      <div style="max-width:320px;margin:14px auto;">
-        <input type="text" id="nom" placeholder="¿Cómo te llamas?">
-        <br><br><button class="btn" onclick="empezar()">Comenzar mi viaje</button>
-      </div></div>`;
+    state.perfil.nombre = state.coach.nombre || "";
+    if(!state.viaje.inicio) state.viaje.inicio = hoy();
+    save();
   }
   const d=ultimoDiag(), [hh,ht]=habitosHoy(), dc=diaViaje();
   const et = dc ? etapaDe(dc) : null;
@@ -455,7 +452,6 @@ function vInicio(){
       : `<p class="sub">Tu centro de operaciones te espera.</p><button class="btn" onclick="ir('dia')">Ir a Mi Día (Día ${dc} de 90)</button>`}
     </div>`;
 }
-function empezar(){ const n=document.getElementById("nom").value.trim(); if(!n) return; state.perfil.nombre=n; state.viaje.inicio=hoy(); save(); vista="estado"; render(); }
 
 // ---------- FASE 1 · ESTADO ACTUAL ----------
 // Los talleres 3, 4 y 5 del cuaderno comparten estructura: una respuesta por cada
@@ -881,7 +877,14 @@ async function coachLogin(){
   try{
     const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({usuario:u,password:p})});
     const j=await r.json();
-    if(j.ok){ state.coach.token=j.token; state.coach.nombre=j.nombre; state.coach.rol=j.rol; save(); render(); sincronizarAlEntrar(); }
+    if(j.ok){
+      state.coach.token=j.token; state.coach.nombre=j.nombre; state.coach.rol=j.rol;
+      // El nombre y la fecha de inicio vienen de la cuenta. Sin esto, quien se
+      // registra en un dispositivo y entra desde otro caia en el onboarding viejo.
+      if(!state.perfil.nombre) state.perfil.nombre = j.nombre;
+      if(!state.viaje.inicio)  state.viaje.inicio  = hoy();
+      save(); render(); sincronizarAlEntrar();
+    }
     else document.getElementById("cErr").textContent = j.error||"Error de acceso";
   }catch(e){ document.getElementById("cErr").textContent="No hay conexión con el servidor. Inicia INICIAR_SIP.bat"; }
 }
