@@ -238,6 +238,11 @@ function aplicarPlan(j){
   const token = state.coach.token, nombre = state.coach.nombre, rol = state.coach.rol;
   state = normalizarPlan(j.datos);   // puede venir de una version anterior
   state.coach.token = token; state.coach.nombre = nombre; state.coach.rol = rol;
+  // El nombre y la fecha de inicio pertenecen a la CUENTA, no al plan: un plan
+  // guardado antes de tenerlos los traeria vacios y borraria los de la sesion,
+  // lo que ademas devolvia al usuario a la pantalla de inicio.
+  if(!state.perfil.nombre) state.perfil.nombre = nombre || "";
+  if(!state.viaje.inicio)  state.viaje.inicio  = hoy();
   state.coach.modo = "entrar";
   state._rev = j.revision;
   save();
