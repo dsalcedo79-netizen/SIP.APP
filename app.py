@@ -16,6 +16,8 @@ import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import db
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(BASE_DIR, "web")
 AGENTS_DIR = os.path.join(BASE_DIR, "agents")
@@ -33,6 +35,32 @@ ANTHROPIC_ALIAS = {
     "haiku": "claude-haiku-4-5-20251001",
 }
 PBKDF2_ITERS = 200000
+
+# ---- Limite de intentos ----
+# Cada PBKDF2 cuesta ~100 ms de CPU, asi que sin tope un atacante puede tanto
+# adivinar claves como tumbar el servidor. Ventana deslizante en memoria.
+INTENTOS = {}
+LIMITES = {"login": (8, 900), "registro": (5, 3600)}  # (intentos, segundos)
+
+
+def limite_excedido(clave, accion):
+    tope, ventana = LIMITES.get(accion, (10, 900))
+    ahora = time.time()
+    k = accion + ":" + str(clave).lower()
+    marcas = [t for t in INTENTOS.get(k, []) if t > ahora - ventana]
+    if len(INTENTOS) > 5000:
+        INTENTOS.clear()
+    INTENTOS[k] = marcas
+    return len(marcas) >= tope
+
+
+def anotar_intento(clave, accion):
+    k = accion + ":" + str(clave).lower()
+    INTENTOS.setdefault(k, []).append(time.time())
+
+
+def limpiar_intentos(clave, accion):
+    INTENTOS.pop(accion + ":" + str(clave).lower(), None)
 SESSIONS = {}
 SESSION_TTL = 60 * 60 * 12
 
@@ -294,8 +322,35 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0]
         if path == "/healthz":
-            self._send(200, {"ok": True, "provider": CONFIG.get("PROVIDER")})
+            self._send(200, {"ok": True, "provider": CONFIG.get("PROVIDER"),
+                             "db": db.disponible(), "registro": db.disponible()})
             return
+        if path == "/api/admin/actividad":
+            s = self._session()
+            if not can_admin(s):
+                self._send(403, {"error": "Solo un administrador puede ver la actividad"})
+                return
+            if not db.disponible():
+                self._send(200, {"ok": False, "error": "Base de datos no conectada: " + db.motivo()})
+                return
+            def fecha(v):
+                return v.isoformat(sep=" ", timespec="minutes") if v else None
+            personas = [{
+                "nombre": r["nombre"], "email": r["email"], "whatsapp": r.get("whatsapp"),
+                "rol": r["rol"], "registro": fecha(r["creado_en"]),
+                "ultimo_login": fecha(r["ultimo_login"]), "ultima_accion": fecha(r["ultima_accion"]),
+                "eventos": r["eventos"], "dias_activos": r["dias_activos"],
+                "fase1": r["hizo_fase1"], "fase2": r["hizo_fase2"], "firmo": r["firmo_plan"],
+            } for r in db.resumen_usuarios()]
+            recientes = [{"cuando": fecha(r["creado_en"]), "quien": r["nombre"],
+                          "email": r["email"], "evento": r["evento"]}
+                         for r in db.eventos_recientes(120)]
+            self._send(200, {"ok": True, "metricas": db.metricas(),
+                             "personas": personas, "recientes": recientes,
+                             "whatsapp": [{"nombre": w["nombre"], "numero": w["whatsapp"]}
+                                          for w in db.lista_whatsapp()]})
+            return
+
         if path == "/api/users":
             s = self._session()
             if not can_admin(s):
@@ -331,15 +386,81 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/login":
             usuario = data.get("usuario", "")
             pwd = str(data.get("password", ""))
-            u = find_user(usuario)
+            if limite_excedido(usuario, "login"):
+                self._send(429, {"ok": False, "error":
+                    "Demasiados intentos fallidos. Espera 15 minutos e intenta de nuevo."})
+                return
+            # Primero las cuentas de la base de datos; si no, usuarios.json
+            # (ahi viven las cuentas internas de siempre).
+            u = None
+            fila = db.buscar_por_email(usuario)
+            if fila:
+                u = {"usuario": fila["email"], "nombre": fila["nombre"],
+                     "rol": fila["rol"], "salt": fila["salt"], "hash": fila["hash"]}
+            if not u:
+                u = find_user(usuario)
             if u and verify_password(pwd, u.get("salt", ""), u.get("hash", "")):
+                limpiar_intentos(usuario, "login")
+                if fila:
+                    db.marcar_login(usuario)
+                    db.registrar_evento(usuario, "login")
                 tok = new_session(u)
                 s = SESSIONS[tok]
                 self._send(200, {"ok": True, "token": tok, "nombre": s["nombre"],
                                  "rol": s["rol"], "etiqueta": s["etiqueta"],
                                  "tipo": s["tipo"], "menus": s["menus"]})
             else:
+                anotar_intento(usuario, "login")
                 self._send(401, {"ok": False, "error": "Usuario o contrasena incorrectos"})
+            return
+
+        if self.path == "/api/registro":
+            if not db.disponible():
+                self._send(200, {"ok": False, "error":
+                    "El registro no esta habilitado todavia. Escribenos para crearte una cuenta."})
+                return
+            email  = str(data.get("email", "")).strip()
+            nombre = str(data.get("nombre", "")).strip()
+            wa     = str(data.get("whatsapp", "")).strip()
+            pwd    = str(data.get("password", ""))
+            acepta = data.get("acepta")
+            if limite_excedido(email or "anon", "registro"):
+                self._send(429, {"ok": False, "error":
+                    "Demasiados registros seguidos. Intenta de nuevo en una hora."})
+                return
+            if not nombre:
+                self._send(200, {"ok": False, "error": "Escribe tu nombre."}); return
+            if not db.email_valido(email):
+                self._send(200, {"ok": False, "error": "Ese correo no parece valido."}); return
+            if not db.whatsapp_valido(wa):
+                self._send(200, {"ok": False, "error":
+                    "El WhatsApp debe incluir el indicativo del pais. Ejemplo: +57 300 123 4567"}); return
+            if len(pwd) < 8:
+                self._send(200, {"ok": False, "error": "La contrasena necesita al menos 8 caracteres."}); return
+            if not acepta:
+                self._send(200, {"ok": False, "error":
+                    "Necesitas aceptar el tratamiento de tus datos para crear la cuenta."}); return
+            salt, h = hash_password(pwd)
+            ok, err = db.crear_usuario(email, nombre, wa, salt, h)
+            anotar_intento(email, "registro")
+            if not ok:
+                self._send(200, {"ok": False, "error": err}); return
+            db.registrar_evento(email, "registro")
+            db.marcar_login(email)
+            db.registrar_evento(email, "login")
+            tok = new_session({"usuario": email, "nombre": nombre, "rol": "usuario"})
+            ses = SESSIONS[tok]
+            self._send(200, {"ok": True, "token": tok, "nombre": ses["nombre"],
+                             "rol": ses["rol"], "etiqueta": ses["etiqueta"],
+                             "tipo": ses["tipo"], "menus": ses["menus"]})
+            return
+
+        if self.path == "/api/evento":
+            s = self._session()
+            if not s:
+                self._send(401, {"error": "No autorizado"}); return
+            db.registrar_evento(s.get("usuario", ""), str(data.get("evento", "")))
+            self._send(200, {"ok": True})
             return
 
         if self.path == "/api/chat":
@@ -397,8 +518,13 @@ def main():
     print(" SIP - Maestria de Vida | VIVE - CRECE - CONTRIBUYE")
     print("=" * 60)
     print(" Proveedor IA: %s | Modelo: %s" % (p, CONFIG.get("MODEL") or DEFAULT_MODELS.get(p)))
-    print(" Agentes: %d | Usuarios: %d | Roles: %s" % (
-        len(dirs), len(USERS.get("usuarios", [])), ", ".join(USERS.get("roles", {}).keys())))
+    print(" Agentes: %d | Usuarios locales: %d" % (len(dirs), len(USERS.get("usuarios", []))))
+    listo, porque = db.inicializar()
+    if listo:
+        print(" Base de datos: conectada | Cuentas registradas: %d" % db.contar_usuarios())
+    else:
+        print(" Base de datos: NO conectada (%s)" % porque)
+        print("   -> el registro queda deshabilitado; el login sigue con usuarios.json")
     if not provider_key() or provider_key().startswith("pega-"):
         print("  AVISO: falta la clave de API; los directores no responderan.")
     print(" Escuchando en 0.0.0.0:%d" % port)

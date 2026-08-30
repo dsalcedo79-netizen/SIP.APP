@@ -137,7 +137,7 @@ let state = JSON.parse(localStorage.getItem("sip_v3") || "null") || {
   habitos:[], registros:{}, sesiones:[],
   dias:{},                          // por fecha: {prio:[{t,ok}],rutM:[],rutN:[],mood,gratitud,aprendi,mejora,eval}
   revisiones:{},                    // por semana ISO: {logre,obstaculos,ajustes}
-  coach:{token:"",nombre:"",msgs:[]}
+  coach:{token:"",nombre:"",rol:"",modo:"entrar",msgs:[]}
 };
 state.viaje = state.viaje || {inicio: state.perfil && state.perfil.nombre ? hoyF() : ""};
 state.porqueArea   = state.porqueArea   || {};
@@ -161,6 +161,25 @@ state.motivaArea   = state.motivaArea   || {};
 let vista = "inicio";
 function hoyF(){ return new Date().toLocaleDateString("sv-SE"); }
 function save(){ localStorage.setItem("sip_v3", JSON.stringify(state)); }
+
+// Avisa al servidor de un hito del metodo, para poder medir activacion y
+// retencion. Silencioso: si falla, el usuario no se entera ni se interrumpe.
+function evento(nombre, unaVez){
+  if(!state.coach || !state.coach.token) return;
+  if(unaVez){
+    state.hitos = state.hitos || {};
+    if(state.hitos[nombre]) return;
+    state.hitos[nombre] = hoy(); save();
+  }
+  fetch("/api/evento",{method:"POST",
+    headers:{"Content-Type":"application/json","X-Session":state.coach.token},
+    body:JSON.stringify({evento:nombre})}).catch(function(){});
+}
+// Los hitos de fase se detectan solos en cada render.
+function revisarHitos(){
+  if(fase1Done()) evento("fase1", true);
+  if(fase2Done()) evento("fase2", true);
+}
 const hoy = () => new Date().toLocaleDateString("sv-SE");
 // Parsea "YYYY-MM-DD" como fecha LOCAL (evita el corrimiento de un día por zona horaria)
 function fecha(s){ const [y,m,d]=String(s).split("-").map(Number); return new Date(y, m-1, d); }
@@ -237,7 +256,8 @@ function hechaFase(id){
   return false;
 }
 function pintarViaje(){
-  document.getElementById("viaje").innerHTML = FASES.map(([id,t,sub])=>{
+  const pasos = esAdmin() ? FASES.concat([["actividad","Actividad","Quién usa el programa"]]) : FASES;
+  document.getElementById("viaje").innerHTML = pasos.map(([id,t,sub])=>{
     const cls=[vista===id?"activo":"", hechaFase(id)?"hecho":"", bloqueada(id)?"bloq":""].join(" ");
     return `<div class="paso ${cls}" onclick="ir('${id}')"><b>${t}</b>${sub}</div>`;
   }).join("");
@@ -367,7 +387,7 @@ function vEstado(){
   ${fase1Done()?`<div class="card centro"><p class="sub">✨ <b>Este es mi estado actual.</b> Fase 1 completada.</p><button class="btn" onclick="ir('plan')">Continuar → Mi Plan de Vida</button></div>`:""}`;
 }
 function dimCambia(dim,val){ diagTmp[dim]=+val; document.getElementById("v-"+dim.replace(/\s/g,"_")).textContent=val; document.getElementById("radarBox").innerHTML=radar(diagTmp); }
-function guardarDiag(){ state.diagnosticos.push({fecha:hoy(), valores:{...diagTmp}}); diagTmp=null; save(); render(); }
+function guardarDiag(){ state.diagnosticos.push({fecha:hoy(), valores:{...diagTmp}}); diagTmp=null; save(); evento("rueda_guardada"); render(); }
 function tempResp(i,j){
   state.temperamento.resp[i]=j;
   const c=[0,0,0,0];
@@ -531,7 +551,7 @@ function ind90(i,campo,v){ const m=state.ciclo.metas90[i]; m[campo]=v; m.avance=
 function delMeta90(i){ state.ciclo.metas90.splice(i,1); save(); render(); }
 function ava90(i,v){ state.ciclo.metas90[i].avance=+v; save(); }
 function firmar(){ const f=document.getElementById("firmaTxt").value.trim(); if(!f) return;
-  state.ciclo.firma=f; state.ciclo.firmadoEl=hoy(); save(); vista="dia"; render(); }
+  state.ciclo.firma=f; state.ciclo.firmadoEl=hoy(); save(); evento("plan_firmado", true); vista="dia"; render(); }
 
 // ---------- FASE 4 · MI DÍA ----------
 function vDia(){
@@ -606,7 +626,7 @@ function toggleHabito(id){ const f=hoy(); const r=state.registros[f]=state.regis
   const i=r.indexOf(id); i>=0?r.splice(i,1):r.push(id); save(); render(); }
 function dMood(m){ D().mood=m; save(); render(); }
 function dCampo(k,v){ D()[k]=v; save(); }
-function dEval(n){ D().eval=n; save(); render(); }
+function dEval(n){ D().eval=n; save(); evento("dia_evaluado"); render(); }
 
 // ---------- FASE 5 · MI EVOLUCIÓN ----------
 function informeCorte(corte){
@@ -704,13 +724,33 @@ function vCoach(){
   else if(!cicloActivo()) ins.push("Tu plan de vida está listo. Fírmalo en 90 días concretos: la transformación ocurre ejecutando.");
   else { ins.push(`Día ${diaCiclo()} de 90. ${baja?`Tu área de mayor crecimiento es <b>${baja}</b> — como es adentro, es afuera.`:""}`); if(racha()>=3) ins.push(`Racha de <b>${racha()} días</b>. La constancia es tu superpoder.`); }
   return `<div class="card"><div class="lema">Tu mentor disponible 24/7</div><h2>Coach IA · Maestría de Vida</h2>
-    ${ins.map(x=>`<div class="insight">${x}</div>`).join("")}</div>
+    ${ins.map(x=>`<div class="insight">${x}</div>`).join("")}
+    <p class="aviso">El Coach IA acompaña tu proceso de crecimiento personal. No es un terapeuta ni un profesional de la salud, y no reemplaza atención médica, psicológica ni financiera. Si estás atravesando una crisis, busca ayuda profesional.</p></div>
   <div class="card">
-    ${!c.token ? `
+    ${!c.token ? (c.modo==="registro" ? `
+      <h3>Crea tu cuenta</h3>
+      <p class="sub">Con tu cuenta guardas tu avance y entras al grupo de WhatsApp de Maestría de Vida.</p>
+      <label class="campo">Nombre completo</label><input type="text" id="rNom" placeholder="Como quieres que te llamemos">
+      <label class="campo">Correo</label><input type="text" id="rEmail" placeholder="tucorreo@ejemplo.com">
+      <label class="campo">WhatsApp (con indicativo del país)</label><input type="text" id="rWa" placeholder="+57 300 123 4567">
+      <label class="campo">Contraseña (mínimo 8 caracteres)</label><input type="password" id="rPwd" placeholder="········">
+      <div class="lista-item" style="align-items:flex-start;gap:8px;margin-top:12px;">
+        <input type="checkbox" id="rAcepta" style="width:auto;margin-top:3px;flex:0 0 auto;">
+        <label for="rAcepta" style="font-size:.82rem;color:var(--gris);cursor:pointer;">
+          Autorizo que Maestría de Vida guarde mi nombre, correo y WhatsApp para darme acceso al programa
+          y agregarme al grupo. Puedo pedir que borren mis datos cuando quiera escribiendo al mismo correo.
+          No se comparten con terceros.
+        </label>
+      </div>
+      <br><button class="btn" onclick="coachRegistro()">Crear mi cuenta</button>
+      <button class="btn-mini" onclick="coachModo('entrar')">Ya tengo cuenta</button>
+      <br><span class="aviso" id="cErr"></span>` : `
       <h3>Inicia sesión para conversar con tu Coach</h3>
-      <p class="sub">Usa tu usuario del sistema (el servidor local debe estar corriendo).</p>
-      <div class="fila"><input type="text" id="cu" placeholder="Usuario"><input type="password" id="cp" placeholder="Contraseña"></div>
-      <br><button class="btn" onclick="coachLogin()">Entrar</button> <span class="aviso" id="cErr"></span>`
+      <p class="sub">Entra con el correo con el que te registraste.</p>
+      <div class="fila"><input type="text" id="cu" placeholder="Correo o usuario"><input type="password" id="cp" placeholder="Contraseña"></div>
+      <br><button class="btn" onclick="coachLogin()">Entrar</button>
+      <button class="btn-mini" onclick="coachModo('registro')">Crear una cuenta</button>
+      <br><span class="aviso" id="cErr"></span>`)
     : `
       <h3>Conversación ${c.nombre?("· "+esc(c.nombre)):""}</h3>
       <div class="chat" id="chatBox">${c.msgs.map(m=>`<div class="msg ${m.role==="user"?"user":"coach"}">${esc(m.content)}</div>`).join("") || '<div class="msg coach">¡Hola! Soy tu Coach de Maestría de Vida. ¿En qué parte de tu viaje quieres que te acompañe hoy?</div>'}</div>
@@ -723,7 +763,7 @@ async function coachLogin(){
   try{
     const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({usuario:u,password:p})});
     const j=await r.json();
-    if(j.ok){ state.coach.token=j.token; state.coach.nombre=j.nombre; save(); render(); }
+    if(j.ok){ state.coach.token=j.token; state.coach.nombre=j.nombre; state.coach.rol=j.rol; save(); render(); }
     else document.getElementById("cErr").textContent = j.error||"Error de acceso";
   }catch(e){ document.getElementById("cErr").textContent="No hay conexión con el servidor. Inicia INICIAR_SIP.bat"; }
 }
@@ -736,7 +776,7 @@ async function coachSend(){
     document.getElementById("chatBtn").disabled=true;
     const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json","X-Session":c.token},body:JSON.stringify({director:"coach-ia-maestria",messages:hist})});
     const j=await r.json();
-    if(j.ok) c.msgs.push({role:"assistant",content:j.reply});
+    if(j.ok){ c.msgs.push({role:"assistant",content:j.reply}); evento("coach"); }
     else if(r.status===401||j.error==="No autorizado"){ c.token=""; c.msgs.push({role:"assistant",content:"Tu sesión expiró. Vuelve a iniciar sesión."}); }
     else c.msgs.push({role:"assistant",content:"⚠ "+(j.error||"No pude responder.")});
   }catch(e){ c.msgs.push({role:"assistant",content:"⚠ No hay conexión con el servidor local."}); }
@@ -744,11 +784,97 @@ async function coachSend(){
   const box=document.getElementById("chatBox"); if(box) box.scrollTop=box.scrollHeight;
 }
 function coachReset(){ state.coach.msgs=[]; save(); render(); }
+function coachModo(m){ state.coach.modo=m; save(); render(); }
+async function coachRegistro(){
+  const err = document.getElementById("cErr");
+  const cuerpo = {
+    nombre:   document.getElementById("rNom").value.trim(),
+    email:    document.getElementById("rEmail").value.trim(),
+    whatsapp: document.getElementById("rWa").value.trim(),
+    password: document.getElementById("rPwd").value,
+    acepta:   document.getElementById("rAcepta").checked
+  };
+  err.textContent = "Creando tu cuenta...";
+  try{
+    const r = await fetch("/api/registro",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(cuerpo)});
+    const j = await r.json();
+    if(j.ok){
+      state.coach.token=j.token; state.coach.nombre=j.nombre; state.coach.rol=j.rol;
+      state.coach.modo="entrar";
+      if(!state.perfil.nombre){ state.perfil.nombre=j.nombre; state.viaje.inicio=hoy(); }
+      save(); render();
+    } else { err.textContent = j.error || "No se pudo crear la cuenta."; }
+  }catch(e){ err.textContent = "No hay conexión con el servidor."; }
+}
+
+// ---------- PANEL DE ACTIVIDAD (solo administradores) ----------
+let actividadCache = null;
+function esAdmin(){ return ["presidente","vicepresidente"].includes(state.coach.rol); }
+
+async function cargarActividad(){
+  try{
+    const r = await fetch("/api/admin/actividad",{headers:{"X-Session":state.coach.token}});
+    actividadCache = await r.json();
+  }catch(e){ actividadCache = {ok:false, error:"No hay conexion con el servidor."}; }
+  render();
+}
+
+function vActividad(){
+  if(!esAdmin()) return `<div class="card"><h2>Actividad</h2><p class="sub">Necesitas una cuenta de administrador. <button class="btn-sec" onclick="ir('coach')">Iniciar sesión</button></p></div>`;
+  if(!actividadCache){ setTimeout(cargarActividad, 30); return `<div class="card centro"><p class="sub">Cargando actividad...</p></div>`; }
+  if(!actividadCache.ok) return `<div class="card"><h2>Actividad</h2><div class="insight">${esc(actividadCache.error||"No disponible")}</div><br><button class="btn-sec" onclick="actividadCache=null;render()">Reintentar</button></div>`;
+
+  const m = actividadCache.metricas||{}, p = actividadCache.personas||[], wa = actividadCache.whatsapp||[];
+  const activacion = m.usuarios ? Math.round((m.con_fase1||0)/m.usuarios*100) : 0;
+  const retencion  = m.usuarios ? Math.round((m.activos_28d||0)/m.usuarios*100) : 0;
+  return `<div class="card"><div class="lema">Panel interno</div><h2>Quién usa el programa</h2>
+    <p class="sub">Cada persona registrada, cuándo entró por última vez y hasta dónde llegó en el método.</p></div>
+
+  <div class="grid">
+    <div class="kpi"><div class="num">${m.usuarios||0}</div><div class="lbl">Personas registradas</div></div>
+    <div class="kpi"><div class="num">${m.nuevos_7d||0}</div><div class="lbl">Nuevas esta semana</div></div>
+    <div class="kpi"><div class="num">${m.activos_7d||0}</div><div class="lbl">Activas 7 días</div></div>
+    <div class="kpi"><div class="num">${m.activos_28d||0}</div><div class="lbl">Activas 28 días</div></div>
+  </div>
+  <div class="grid">
+    <div class="kpi"><div class="num" style="color:${activacion>=60?"var(--verde)":"var(--rojo)"}">${activacion}%</div><div class="lbl">Activación · meta 60%</div></div>
+    <div class="kpi"><div class="num" style="color:${retencion>=40?"var(--verde)":"var(--rojo)"}">${retencion}%</div><div class="lbl">Retención 4 semanas · meta 40%</div></div>
+    <div class="kpi"><div class="num">${m.firmaron||0}</div><div class="lbl">Firmaron sus 90 días</div></div>
+  </div>
+
+  <div class="card"><h2>📱 Grupo de WhatsApp</h2>
+    <p class="sub">${wa.length} número${wa.length===1?"":"s"} registrado${wa.length===1?"":"s"}. Cópialos para invitar al grupo.</p>
+    <textarea readonly style="min-height:90px;font-family:monospace;font-size:.82rem;">${esc(wa.map(x=>x.numero+"  ·  "+x.nombre).join("\n"))}</textarea>
+    <br><button class="btn-sec" onclick="copiarWhatsapp()">Copiar solo los números</button> <span class="aviso" id="waMsg"></span></div>
+
+  <div class="card"><h2>Personas</h2>
+    ${p.length ? p.map(x=>`<div class="lista-item" style="flex-wrap:wrap;">
+      <span style="flex:1;min-width:160px;"><b>${esc(x.nombre)}</b><br><span class="aviso">${esc(x.email)}${x.whatsapp?" · "+esc(x.whatsapp):""}</span></span>
+      <span class="tag ${x.fase1?"dorado":""}">${x.fase1?"✓ Fase 1":"sin Fase 1"}</span>
+      ${x.firmo?`<span class="tag dorado">✓ 90 días</span>`:""}
+      <span class="aviso" style="min-width:150px;text-align:right;">${x.dias_activos} día${x.dias_activos===1?"":"s"} activo${x.dias_activos===1?"":"s"}<br>último: ${esc(x.ultimo_login||x.registro||"–")}</span>
+    </div>`).join("") : `<p class="sub">Todavía no hay nadie registrado.</p>`}</div>
+
+  <div class="card"><h2>Últimos movimientos</h2>
+    ${(actividadCache.recientes||[]).slice(0,40).map(r=>`<div class="lista-item">
+      <span class="aviso" style="min-width:120px;">${esc(r.cuando)}</span>
+      <span style="flex:1;">${esc(r.quien)}</span><span class="tag">${esc(r.evento)}</span></div>`).join("")
+      || `<p class="sub">Sin movimientos todavía.</p>`}
+    <br><button class="btn-sec" onclick="actividadCache=null;render()">Actualizar</button></div>`;
+}
+
+function copiarWhatsapp(){
+  const nums = (actividadCache.whatsapp||[]).map(x=>x.numero).join("\n");
+  navigator.clipboard.writeText(nums).then(
+    function(){ document.getElementById("waMsg").textContent = "Copiados ✓"; },
+    function(){ document.getElementById("waMsg").textContent = "No se pudo copiar; selecciona el texto de arriba."; });
+}
 
 // ---------- Render ----------
-const VMAP={inicio:vInicio, estado:vEstado, plan:vPlan, noventa:vNoventa, dia:vDia, evolucion:vEvolucion, coach:vCoach};
+const VMAP={inicio:vInicio, estado:vEstado, plan:vPlan, noventa:vNoventa, dia:vDia, evolucion:vEvolucion, coach:vCoach, actividad:vActividad};
 function render(){
   pintarViaje();
+  revisarHitos();
   if(!state.perfil.nombre) vista="inicio";
   document.getElementById("main").innerHTML = (VMAP[vista]||vInicio)();
   const box=document.getElementById("chatBox"); if(box) box.scrollTop=box.scrollHeight;

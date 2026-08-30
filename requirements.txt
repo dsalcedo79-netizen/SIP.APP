@@ -1,2 +1,5 @@
-# SIGEI solo usa la libreria estandar de Python: no hay dependencias que instalar.
-# Este archivo existe para que Render detecte el proyecto como Python.
+# SIP.MDV usa la libreria estandar de Python para todo el servidor.
+# La unica dependencia es el driver de Postgres, que se necesita solo si
+# DATABASE_URL esta configurada. Sin ella la app arranca igual y el registro
+# de cuentas queda deshabilitado con un aviso.
+psycopg[binary]>=3.1
