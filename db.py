@@ -197,6 +197,30 @@ def whatsapp_valido(numero):
     return bool(re.match(r"^\+\d{8,15}$", n))
 
 
+# Letras con acento incluidas: "Ñandú" empieza por mayuscula y "ñ" no es
+# un simbolo. Sin esto, una clave en espanol se rechazaria mal.
+_LETRAS = "A-Za-zÁÉÍÓÚÜÑáéíóúüñ"
+
+
+def clave_valida(clave):
+    """Devuelve (ok, mensaje). El mensaje enumera solo lo que falta."""
+    c = str(clave or "")
+    falta = []
+    if len(c) < 8:
+        falta.append("8 caracteres")
+    if not re.search(r"[ÁÉÍÓÚÜÑA-Z]", c):
+        falta.append("una mayuscula")
+    if not re.search(r"[0-9]", c):
+        falta.append("un numero")
+    if not re.search(r"[^%s0-9\s]" % _LETRAS, c):
+        falta.append("un simbolo (por ejemplo . - _ $ #)")
+    if not falta:
+        return True, None
+    if len(falta) == 1:
+        return False, "Tu contrasena necesita %s." % falta[0]
+    return False, "Tu contrasena necesita %s y %s." % (", ".join(falta[:-1]), falta[-1])
+
+
 def buscar_por_email(email):
     """Devuelve el usuario como dict, o None. None tambien ante error de conexion."""
     if not disponible():

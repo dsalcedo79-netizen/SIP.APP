@@ -555,8 +555,9 @@ class Handler(BaseHTTPRequestHandler):
             if not db.whatsapp_valido(wa):
                 self._send(200, {"ok": False, "error":
                     "El WhatsApp debe incluir el indicativo del pais. Ejemplo: +57 300 123 4567"}); return
-            if len(pwd) < 8:
-                self._send(200, {"ok": False, "error": "La contrasena necesita al menos 8 caracteres."}); return
+            clave_ok, clave_error = db.clave_valida(pwd)
+            if not clave_ok:
+                self._send(200, {"ok": False, "error": clave_error}); return
             if not acepta:
                 self._send(200, {"ok": False, "error":
                     "Necesitas aceptar el tratamiento de tus datos para crear la cuenta."}); return

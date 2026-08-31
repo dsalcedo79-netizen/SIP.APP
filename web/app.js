@@ -1016,6 +1016,24 @@ function tarjetaCohorte(){
 }
 
 // ---------- ACCESO (obligatorio desde ahora) ----------
+// Mismas reglas que valida el servidor. Aqui solo sirven para que la persona
+// vea que le falta mientras escribe, en vez de enterarse al enviar.
+const REQ_CLAVE = [
+  ["8 caracteres",  c => c.length >= 8],
+  ["una mayúscula", c => /[ÁÉÍÓÚÜÑA-Z]/.test(c)],
+  ["un número",     c => /[0-9]/.test(c)],
+  ["un símbolo",    c => /[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9\s]/.test(c)]
+];
+function requisitosHTML(clave){
+  return REQ_CLAVE.map(([n,f])=>{
+    const ok = f(clave||"");
+    return `<span style="display:inline-block;margin:0 12px 3px 0;color:${ok?"var(--verde)":"var(--gris)"};">${ok?"✓":"○"} ${n}</span>`;
+  }).join("");
+}
+function pintarRequisitos(){
+  const el = document.getElementById("rReq");
+  if(el) el.innerHTML = requisitosHTML((document.getElementById("rPwd")||{}).value);
+}
 function vAcceso(){
   const c = state.coach;
   const registro = c.modo === "registro";
@@ -1031,7 +1049,9 @@ function vAcceso(){
       <label class="campo">Nombre completo</label><input type="text" id="rNom" placeholder="Como quieres que te llamemos">
       <label class="campo">Correo</label><input type="text" id="rEmail" placeholder="tucorreo@ejemplo.com">
       <label class="campo">WhatsApp (con indicativo del país)</label><input type="text" id="rWa" placeholder="+57 300 123 4567">
-      <label class="campo">Contraseña (mínimo 8 caracteres)</label><input type="password" id="rPwd" placeholder="········">
+      <label class="campo">Contraseña</label>
+      <input type="password" id="rPwd" placeholder="········" oninput="pintarRequisitos()">
+      <p class="aviso" id="rReq" style="margin-top:5px;">${requisitosHTML("")}</p>
       <div class="lista-item" style="align-items:flex-start;gap:8px;margin-top:12px;">
         <input type="checkbox" id="rAcepta" style="width:auto;margin-top:3px;flex:0 0 auto;">
         <label for="rAcepta" style="font-size:.82rem;color:var(--gris);cursor:pointer;">
