@@ -150,7 +150,8 @@ function planVacio(){ return {
   viaje:{inicio:""},
   perfil:{nombre:"",mision:"",vision:""},
   diagnosticos:[], temperamento:{resp:{},resultado:""},
-  foda:{f:"",o:"",d:"",a:""}, ikigai:{amas:"",bueno:"",mundo:"",valor:"",sintesis:""},
+  foda:{f:"",o:"",d:"",a:""}, ikigai:{amas:"",bueno:"",mundo:"",valor:"",
+          mision:"",vocacion:"",ocupacion:"",pasion:"",quiensoy:"",sintesis:""},
   planAnual:{vivir:"",crecer:"",contribuir:"",areas:{}},
   declaracion:"", afirmaciones:[], aformaciones:[], vision:[],
   porqueArea:{}, analisisArea:{}, motivaArea:{},   // Talleres 3, 4 y 5 del cuaderno
@@ -485,6 +486,34 @@ function vInicio(){
 }
 
 // ---------- FASE 1 · ESTADO ACTUAL ----------
+// El Ikigai del cuaderno no son cuatro campos: son cuatro entradas que se
+// cruzan de a pares para producir cinco descubrimientos. Cada cruce muestra
+// las dos respuestas que lo alimentan; sin verlas, la pregunta queda en el aire.
+const IKIGAI_ENTRADAS = {
+  amas:  ["❤️", "Lo que amas hacer"],
+  bueno: ["⭐", "En lo que eres bueno"],
+  mundo: ["🌍", "Lo que el mundo necesita"],
+  valor: ["💎", "Por lo que te pueden pagar"]
+};
+
+function cruceIkigai(ref, titulo, explicacion, campo, a, b, marcador){
+  const k = state.ikigai;
+  const listo = !!(k[campo] || "").trim();
+  const faltan = [a, b].filter(x => !(k[x] || "").trim());
+  return `<details class="area"><summary><span>${ref} · ${titulo}<br><span class="objetivo">${IKIGAI_ENTRADAS[a][1]} + ${IKIGAI_ENTRADAS[b][1]}</span></span><span class="tag ${listo?"":"dorado"}">${listo?"✓":"Pendiente"}</span></summary>
+    <div class="cuerpo">
+      <p class="sub">${explicacion}</p>
+      ${faltan.length
+        ? `<div class="compuerta"><b>Antes responde los talleres 8 a 11.</b><p class="sub" style="margin-top:6px;">Este cruce nace de <b>${faltan.map(x=>IKIGAI_ENTRADAS[x][1]).join("</b> y <b>")}</b>, que ${faltan.length===1?"todavía está en blanco":"todavía están en blanco"}.</p></div>`
+        : `<div class="fila" style="align-items:stretch;gap:10px;">
+             ${[a,b].map(x=>`<div class="insight" style="flex:1;min-width:150px;margin:0;">
+               <b>${IKIGAI_ENTRADAS[x][0]} ${IKIGAI_ENTRADAS[x][1]}</b><br>
+               <span style="font-size:.88rem;">${esc(k[x])}</span></div>`).join("")}
+           </div>
+           <label class="campo">${marcador}</label>
+           <textarea style="min-height:90px" onblur="campo('ikigai','${campo}',this.value)" placeholder="${marcador}">${esc(k[campo])}</textarea>`}
+    </div></details>`;
+}
 // Los talleres 3, 4 y 5 del cuaderno comparten estructura: una respuesta por cada
 // una de las 10 areas. Un solo componente los sirve a los tres.
 function bloqueArea(ref, titulo, pregunta, store, placeholder){
@@ -543,13 +572,47 @@ function vEstado(){
       <label class="campo">⚠️ Amenazas — ¿Qué riesgos externos enfrentas?</label><textarea onblur="campo('foda','a',this.value)">${esc(state.foda.a)}</textarea>
     </div></details>
 
-  <details class="area"><summary><span>Herramienta 4 · Talleres 8 a 11 · Método Ikigai<br><span class="objetivo">¿Cuál podría ser tu propósito?</span></span><span class="tag ${ikigaiOk()?"":"dorado"}">${ikigaiOk()?"✓ Completado":"Pendiente"}</span></summary>
+  <details class="area"><summary><span>Herramienta 4 · Talleres 8 a 11 · Las cuatro preguntas del Ikigai<br><span class="objetivo">Las entradas que alimentan los cruces siguientes</span></span><span class="tag ${ikigaiOk()?"":"dorado"}">${ikigaiOk()?"✓ Completado":"Pendiente"}</span></summary>
     <div class="cuerpo">
       <label class="campo">❤️ ¿Qué amas hacer?</label><textarea onblur="campo('ikigai','amas',this.value)">${esc(state.ikigai.amas)}</textarea>
       <label class="campo">⭐ ¿En qué eres bueno?</label><textarea onblur="campo('ikigai','bueno',this.value)">${esc(state.ikigai.bueno)}</textarea>
       <label class="campo">🌍 ¿Qué necesita el mundo de ti?</label><textarea onblur="campo('ikigai','mundo',this.value)">${esc(state.ikigai.mundo)}</textarea>
       <label class="campo">💎 ¿Por qué pueden pagarte o cómo generas valor?</label><textarea onblur="campo('ikigai','valor',this.value)">${esc(state.ikigai.valor)}</textarea>
-      <label class="campo">🎯 Síntesis — Mi posible propósito es...</label><textarea onblur="campo('ikigai','sintesis',this.value)">${esc(state.ikigai.sintesis)}</textarea>
+    </div></details>
+
+  ${cruceIkigai("Herramienta 4 · Taller 12", "¿Cuál es mi misión?",
+    "Tu misión nace cuando descubres aquello que amas hacer y lo utilizas para aportar valor a los demás. Es el punto donde tus pasiones y talentos se conectan con las necesidades del mundo.",
+    "mision", "amas", "mundo", "Mi misión es...")}
+
+  ${cruceIkigai("Herramienta 4 · Taller 13", "¿Cuál es mi vocación?",
+    "Tu vocación surge cuando encuentras una forma de aportar valor al mundo a través de actividades por las que otras personas están dispuestas a pagar.",
+    "vocacion", "mundo", "valor", "Mi vocación es...")}
+
+  ${cruceIkigai("Herramienta 4 · Taller 14", "¿Cuál es mi ocupación?",
+    "Tu ocupación aparece donde lo que sabes hacer bien coincide con lo que otros valoran lo suficiente como para pagarlo. Es tu oficio: sostiene tu vida mientras creces.",
+    "ocupacion", "bueno", "valor", "Mi ocupación es...")}
+
+  ${cruceIkigai("Herramienta 4 · Taller 15", "¿Cuál es mi pasión?",
+    "Tu pasión vive donde lo que amas se encuentra con lo que haces bien. Es eso que harías aunque nadie te lo pidiera, y en lo que el tiempo se te pasa sin darte cuenta.",
+    "pasion", "amas", "bueno", "Mi pasión es...")}
+
+  <details class="area"><summary><span>Herramienta 4 · Taller 16 · ¿Quién soy?<br><span class="objetivo">Reúne los cuatro cruces en una sola respuesta</span></span><span class="tag ${state.ikigai.quiensoy.trim()?"":"dorado"}">${state.ikigai.quiensoy.trim()?"✓":"Pendiente"}</span></summary>
+    <div class="cuerpo">
+      <p class="sub">Ya descubriste tu misión, tu vocación, tu ocupación y tu pasión. Ahora dilo en primera persona, sin rodeos: no lo que haces, sino quién eres.</p>
+      ${["mision","vocacion","ocupacion","pasion"].filter(x=>(state.ikigai[x]||"").trim()).length
+        ? `<div class="grid">${[["mision","Misión"],["vocacion","Vocación"],["ocupacion","Ocupación"],["pasion","Pasión"]]
+            .filter(([c])=>(state.ikigai[c]||"").trim())
+            .map(([c,n])=>`<div class="kpi" style="text-align:left;"><div class="lbl" style="margin:0 0 4px;">${n}</div><div style="font-size:.86rem;">${esc(state.ikigai[c])}</div></div>`).join("")}</div><br>`
+        : `<p class="aviso">Completa primero los talleres 12 a 15: esta respuesta se construye con ellos.</p>`}
+      <label class="campo">Yo soy...</label>
+      <textarea style="min-height:110px" onblur="campo('ikigai','quiensoy',this.value)" placeholder="Yo soy...">${esc(state.ikigai.quiensoy)}</textarea>
+    </div></details>
+
+  <details class="area"><summary><span>Herramienta 4 · Taller 17 · ¿Cuál es mi razón de ser o propósito?<br><span class="objetivo">El centro del Ikigai: donde se cruzan las cuatro</span></span><span class="tag ${state.ikigai.sintesis.trim()?"":"dorado"}">${state.ikigai.sintesis.trim()?"✓":"Pendiente"}</span></summary>
+    <div class="cuerpo">
+      <p class="sub">Tu razón de ser está donde las cuatro se tocan a la vez: lo que amas, en lo que eres bueno, lo que el mundo necesita y por lo que te pueden pagar. Escríbela en una sola frase que puedas recordar.</p>
+      <label class="campo">🎯 Mi propósito es...</label>
+      <textarea style="min-height:100px" onblur="campo('ikigai','sintesis',this.value)" placeholder="Mi propósito es...">${esc(state.ikigai.sintesis)}</textarea>
     </div></details>
 
   ${fase1Done()?`<div class="card centro"><p class="sub">✨ <b>Este es mi estado actual.</b> Fase 1 completada.</p><button class="btn" onclick="ir('plan')">Continuar → Mi Plan de Vida</button></div>`:""}`;
