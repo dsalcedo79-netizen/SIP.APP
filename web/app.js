@@ -718,7 +718,11 @@ function addVision(){ const e=document.getElementById("vbEmoji").value.trim(), t
 // ---------- FASE 3 · PLAN DE 90 DÍAS ----------
 function vNoventa(){
   if(!(fase1Done()&&fase2Done())) return `<div class="card"><div class="lema">Fase 3 · ¿Qué harás estos 90 días?</div><h2>Tu Plan de 90 Días</h2></div>`+compuertaHTML();
-  if(!state.ciclo) state.ciclo={inicio:hoy(), prioridades:["","",""], metas90:[], firma:"", firmadoEl:""};
+  if(!state.ciclo) state.ciclo={inicio:hoy(), prioridades:["","",""], metas90:[],
+    proyectos:[], semanas:[], firma:"", firmadoEl:""};
+  // Ciclos creados antes de que existieran los talleres 25 y 26.
+  state.ciclo.proyectos = state.ciclo.proyectos || [];
+  state.ciclo.semanas   = state.ciclo.semanas   || [];
   const c=state.ciclo, dv=diaViaje(), et=etapaDe(dv||1);
   const fin = new Date(fecha(state.viaje.inicio).getTime()+89*86400000).toLocaleDateString("sv-SE");
   return `<div class="card"><div class="lema">Fase 3 · ¿Qué harás estos 90 días?</div>
@@ -750,6 +754,45 @@ function vNoventa(){
         : `<input type="range" class="avance" min="0" max="100" step="5" value="${m.avance||0}" oninput="ava90(${i},this.value)"><p class="aviso" style="width:100%;">Sin indicador numérico: mueve la barra a mano.</p>`}
     </div>`).join("") || `<p class="aviso">Agrega al menos una meta.</p>`}</div>
 
+  <div class="card"><h2>Herramienta 12 · Taller 25 · Mis proyectos estratégicos</h2>
+    <p class="sub">Todo objetivo importante debe convertirse en un proyecto. Cada uno representa una decisión consciente de invertir tu tiempo, tu energía y tu talento en lo que de verdad importa. Anticipa qué se te va a atravesar: el obstáculo que ya viste venir no te detiene.</p>
+    ${c.proyectos.map((pr,i)=>`<details class="area" ${pr.nombre?"":"open"}><summary><span>${esc(pr.nombre)||"Proyecto sin nombre"}<br><span class="objetivo">${esc(pr.area||"")}</span></span><span class="tag ${pr.obstaculos&&pr.superar?"":"dorado"}">${pr.obstaculos&&pr.superar?"✓":"Sin obstáculos previstos"}</span></summary>
+      <div class="cuerpo">
+        <div class="fila"><input type="text" value="${esc(pr.nombre)}" placeholder="Nombre del proyecto" onblur="proy(${i},'nombre',this.value)" ${c.firma?"disabled":""}>
+        <select onchange="proy(${i},'area',this.value)" ${c.firma?"disabled":""}>${DIMS.map(x=>`<option ${pr.area===x?"selected":""}>${x}</option>`).join("")}</select></div>
+        <label class="campo">¿Qué obstáculos podrían aparecer?</label>
+        <textarea onblur="proy(${i},'obstaculos',this.value)">${esc(pr.obstaculos)}</textarea>
+        <label class="campo">¿Cómo los superaré?</label>
+        <textarea onblur="proy(${i},'superar',this.value)">${esc(pr.superar)}</textarea>
+        ${!c.firma?`<br><button class="btn-mini" onclick="delProy(${i})">✕ Quitar este proyecto</button>`:""}
+      </div></details>`).join("") || '<p class="aviso">Todavía no has definido ningún proyecto.</p>'}
+    ${!c.firma?`<br><div class="centro"><button class="btn-sec" onclick="addProy()">+ Agregar proyecto</button></div>`:""}</div>
+
+  <div class="card"><h2>Herramienta 12 · Taller 26 · Plan de acción de 12 semanas</h2>
+    <p class="sub">Noventa días son doce semanas. Escribe en cada una lo que vas a lograr: enfocarse mejor es lo que distingue a quienes llegan.</p>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(210px,1fr));">
+      ${[...Array(12)].map((_,i)=>{
+        const dv=diaViaje(), ini=i*7+1, fin=(i+1)*7, actual = dv>=ini && dv<=fin;
+        return `<div class="kpi" style="text-align:left;padding:11px;${actual?"border-color:var(--dorado);background:#fffbef;":""}">
+          <div class="lbl" style="margin:0 0 5px;">Semana ${i+1}${actual?" · estás aquí":""} <span style="opacity:.6;">· días ${ini}–${fin}</span></div>
+          <textarea style="min-height:56px;font-size:.85rem;" placeholder="¿Qué vas a lograr?" onblur="semana(${i},this.value)">${esc(c.semanas[i])}</textarea>
+        </div>`;}).join("")}
+    </div></div>
+
+  <div class="card"><h2>Herramienta 12 · Taller 27 · Hábitos claves de éxito</h2>
+    <p class="sub">Las metas producen resultados; los hábitos producen metas cumplidas. Lo que decidas aquí aparece cada día en Mi Día: planear y ejecutar no son dos listas distintas.</p>
+    ${HABITO_TIPOS.map(([tipo,etiqueta,emoji])=>{
+      const lista = state.habitos.filter(h=>(h.tipo||"comenzar")===tipo);
+      return `<div class="grupo-titulo">${emoji} ${etiqueta}</div>
+        ${lista.map(h=>`<div class="lista-item"><span style="flex:1;">${esc(h.nombre)}</span><span class="tag">${esc(h.area)}</span>
+          <button class="btn-mini" onclick="delHabito('${h.id}')">✕</button></div>`).join("")
+          || `<p class="aviso" style="margin-bottom:6px;">Ninguno todavía.</p>`}
+        <div class="fila" style="margin-bottom:12px;">
+          <input type="text" id="h27-${tipo}" placeholder="Ej. Leer 20 minutos">
+          <select id="h27dim-${tipo}">${DIMS.map(x=>`<option>${x}</option>`).join("")}</select>
+          <button class="btn-sec" onclick="addHabito27('${tipo}')">+</button></div>`;
+    }).join("")}</div>
+
   <div class="card"><h2>Herramienta 12 · Taller 28 · Compromiso personal de 90 días</h2>
     ${c.firma
       ? `<div class="insight">✍️ <b>Firmado por ${esc(c.firma)}</b> el ${c.firmadoEl}.<br><br><i>"Hoy decido asumir la responsabilidad de mi crecimiento personal. Me comprometo a mantener el enfoque en mis prioridades, ejecutar las acciones necesarias y desarrollar los hábitos que me acercarán a la vida que deseo construir. Acepto que los resultados dependerán de mi disciplina, constancia y compromiso diario. Durante los próximos 90 días elegiré avanzar antes que rendirme, aprender antes que justificarme y actuar antes que postergar."</i></div>
@@ -763,6 +806,18 @@ function vNoventa(){
   </div>`;
 }
 function prio90(i,v){ state.ciclo.prioridades[i]=v; save(); }
+function addProy(){ state.ciclo.proyectos.push({nombre:"",area:DIMS[0],obstaculos:"",superar:""}); save(); render(); }
+function delProy(i){ state.ciclo.proyectos.splice(i,1); save(); render(); }
+function proy(i,k,v){ state.ciclo.proyectos[i][k]=v; save(); if(k==="nombre"||k==="area") render(); }
+function semana(i,v){ state.ciclo.semanas[i]=v; save(); }
+// El Taller 27 crea directamente los habitos de Mi Dia: no son dos listas.
+function addHabito27(tipo){
+  const el=document.getElementById("h27-"+tipo), n=(el.value||"").trim();
+  if(!n) return;
+  state.habitos.push({id:uid(), nombre:n, tipo:tipo,
+    area:document.getElementById("h27dim-"+tipo).value});
+  el.value=""; save(); render();
+}
 function addMeta90(){ const t=document.getElementById("m90Txt").value.trim(); if(!t) return;
   state.ciclo.metas90.push({area:document.getElementById("m90Dim").value, desc:t, avance:0,
     indInicial:"", indActual:"", indMeta:"", indUnidad:""}); save(); render(); }
